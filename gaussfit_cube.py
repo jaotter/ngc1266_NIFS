@@ -124,14 +124,11 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 	residuals_std = np.nanstd(fit_residuals)
 
 	sclip_keep_ind = np.where(fit_residuals < 3*residuals_std)[0]
-	residuals_clip_std = np.nanstd(fit_residuals[sclip_keep_ind])
+	residuals_clip_std = np.nanstd(fit_residuals[sclip_keep_ind]) / np.sqrt(len(sclip_keep_ind))
 
 	outlier_ind = np.where(fit_residuals > 5*residuals_std)[0]
 
 	if len(outlier_ind) > 0 and mask_ind is None:
-		print(residuals_clip_std)
-		print(outlier_ind)
-
 		lower_outlier_ind = outlier_ind[np.where(outlier_ind < len(lower_ind))[0]]
 		upper_outlier_ind = outlier_ind[np.where(outlier_ind >= len(lower_ind))[0]] - len(lower_ind)
 
@@ -141,7 +138,6 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 
 		cont_fit, residuals_clip_std, mask_ind = fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=full_ind)
 
-		print(residuals_clip_std)
 
 	return cont_fit, residuals_clip_std, mask_ind
 
@@ -163,19 +159,21 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 		ax0 = fig.add_subplot(gs[0,0])
 		ax1 = fig.add_subplot(gs[1,0], sharex=ax0)
 
-		amp1 = np.round(popt[1] * 1e15)
-		amp2 = np.round(popt[4] * 1e15)
+		amp1 = np.round(popt[1] * 1e18)
+		amp2 = np.round(popt[4] * 1e18)
 		sig1 = int(np.round(popt[2]))
 		sig2 = int(np.round(popt[5]))
 
 		ax0.plot(wave_vel_fit-galv.value, spectrum_fit, color='tab:blue', linestyle='-', marker='.', label='Data')
-		ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[0:3]) + cont_fit, linestyle='--', color='tab:purple', label=fr'Comp 1 (A={amp1}e-15,$\sigma$={sig1})')
-		ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[3:6]) + cont_fit, linestyle='-', color='tab:purple', label=fr'Comp 2 (A={amp2}e-15,$\sigma$={sig2})')
+		ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[0:3]) + cont_fit, linestyle='--', color='tab:purple', label=fr'Comp 1 (A={amp1}e-18,$\sigma$={sig1})')
+		ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[3:6]) + cont_fit, linestyle='-', color='tab:purple', label=fr'Comp 2 (A={amp2}e-18,$\sigma$={sig2})')
 		ax0.plot(wave_vel_fit-galv.value, cont_fit, linestyle='-', color='tab:orange', label='Continuum')
 		ax0.plot(wave_vel_fit-galv.value, cont_fit + gauss_sum(wave_vel_fit, *popt), linestyle='-', color='k', label='Full Fit')
 
 		if mask_ind is not None:
 			ax0.plot(wave_vel_fit[mask_ind]-galv.value, spectrum_fit[mask_ind], color='tab:red', linestyle='-', marker='x')
+
+		ax0.text(0, 1.1, start, transform=ax0.transAxes)
 
 		ax0.axvspan(-1700, -1000, color='tab:red', alpha=0.1)
 		ax0.axvspan(1000, 1700, color='tab:red', alpha=0.1)
@@ -279,7 +277,7 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 		print(f'binNum: {bn}, x,y: {x_loc[0], y_loc[0]}')
 
 
-		spectrum = cube[:,y_loc,x_loc] * 1e-15 * u.erg / u.cm**2 / u.s / u.AA
+		spectrum = cube[:,y_loc,x_loc] * u.erg / u.cm**2 / u.s / u.AA
 		#spectrum_err = np.sqrt(np.abs(error_cube[:,y_loc,x_loc])) #sqrt bc this cube is the variance
 
 		if len(spectrum[np.isnan(spectrum)]) > 0.3 * len(spectrum) or len(spectrum[spectrum==0]) > 0.3 * len(spectrum):
@@ -304,10 +302,16 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 		#line_spec_err = np.sqrt(np.abs(spectrum_err[fit_ind].squeeze())) 
 
 		peak_flux = np.nanmax(line_spec)
+		peak_ind = np.where(line_spec == peak_flux)[0][0]
+		peak_vel = line_vel[peak_ind].value
+
+		if np.abs(peak_vel - galv.value) > 500:
+			peak_vel = galv.value
 
 		if prev_fit_params is None:
 			#initial guess if of 2 components, one wider with 1/3 the flux
-			start = [galv.value, peak_flux, 200, galv.value, peak_flux*0.25, 400]
+			start = [peak_vel, peak_flux, 200, peak_vel, peak_flux*0.25, 400]
+
 			#format is ([lower bounds], [upper bounds])
 			bounds = ([galv.value - 500, peak_flux * 0.1, 20, galv.value - 500, 0, 50], [galv.value + 500, peak_flux*10, 600, galv.value + 500, peak_flux*10, 600])
 
@@ -318,8 +322,8 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 			width_upper_2 = np.min((prev_fit_params[5]*2, 600))
 			width_lower_1 = np.max((prev_fit_params[2]*0.5, 20))
 			width_lower_2 = np.max((prev_fit_params[5]*0.5, 20))
-			bounds = ([prev_fit_params[0]-400, peak_flux*0.01, width_lower_1, prev_fit_params[0]-700, peak_flux*0.01, width_lower_2],
-				[prev_fit_params[0]+400, peak_flux*10, width_upper_1, prev_fit_params[0]+700, peak_flux*10, width_upper_2])
+			bounds = ([prev_fit_params[0]-400, peak_flux*0.1, width_lower_1, prev_fit_params[0]-700, peak_flux*0.01, width_lower_2],
+				[prev_fit_params[0]+400, peak_flux*3, width_upper_1, prev_fit_params[0]+700, peak_flux*3, width_upper_2])
 
 		#line_spec_err[line_spec_err == 0] = np.nanmedian(line_spec_err)
 
@@ -377,15 +381,15 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 
 			#use H2_212 fit for initial conditions
 			#initial guess is of 2 components, one wider with 1/3 the flux
-			start = [prev_fit_params[0], peak_flux, prev_fit_params[2], prev_fit_params[0], peak_flux/3, prev_fit_params[5]]
-			#format is ([lower bounds], [upper bounds])
+			start = [prev_fit_params[0], peak_flux, prev_fit_params[2], prev_fit_params[0], peak_flux*0.25, prev_fit_params[5]]
+			#currently these bounds are not very limiting
 			width_upper_1 = np.min((prev_fit_params[2]*2, 600))
 			width_upper_2 = np.min((prev_fit_params[5]*2, 600))
 			width_lower_1 = np.max((prev_fit_params[2]*0.5, 20))
 			width_lower_2 = np.max((prev_fit_params[5]*0.5, 20))
-			bounds = ([prev_fit_params[0]-400, peak_flux * 0.01, width_lower_1, prev_fit_params[0]-700, 0, width_lower_2], 
-						[prev_fit_params[0]+400, peak_flux*10, width_upper_1, prev_fit_params[0]+700, peak_flux*10, width_upper_2])
-
+			bounds = ([prev_fit_params[0]-400, peak_flux*0.1, width_lower_1, prev_fit_params[0]-700, peak_flux*0.01, width_lower_2],
+						[prev_fit_params[0]+400, peak_flux*3, width_upper_1, prev_fit_params[0]+700, peak_flux*3, width_upper_2])
+		
 			#line_spec_err[line_spec_err == 0] = np.nanmedian(line_spec_err)
 			try:
 				popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind)
@@ -490,10 +494,10 @@ def csv_to_maps(csv_path, save_name):
 	print(f'saved to {savefile}')
 
 
-fit_cube(runID='c2run1')
+fit_cube(runID='c2run2')
 
-csv_path = '/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/c2run1_gaussfit.csv'
-save_name = 'c2run1_gaussfit_maps'
+csv_path = '/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/c2run2_gaussfit.csv'
+save_name = 'c2run2_gaussfit_maps'
 
 csv_to_maps(csv_path, save_name)
 
