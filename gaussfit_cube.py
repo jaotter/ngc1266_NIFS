@@ -14,8 +14,7 @@ import os
 #########
 # Script to fit NIFS lines with gaussian
 
-line_dict = {'H2(1-0)S(2)':2.0332, 'H2(1-0)S(1)':2.1213, 'H2(1-0)S(0)':2.2230, 'H2(2-1)S(1)':2.2470, 'H2(2-1)S(2)':2.1542, 'H2(1-0)Q(1)':2.4066,'Brgamma':2.1654}#, 'CIV':2.0780}
-#lines to make maps for, leaving off CIV for now (need to find reference and also idk what to use it for)
+line_dict = {'H2(1-0)S(2)':2.0332, 'H2(1-0)S(1)':2.1213, 'H2(1-0)S(0)':2.2230, 'H2(2-1)S(1)':2.2470, 'H2(2-1)S(2)':2.1542, 'Brgamma':2.1654, 'H2(2-1)S(3)':2.0735, 'H2(1-0)Q(1)':2.4066}
 
 z = 0.007214         # NGC 1266 redshift, from SIMBAD
 galv = np.log(z+1)*const.c.to(u.km/u.s) # estimate of galaxy's velocity
@@ -92,6 +91,25 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 	lower_band_kms = [-1700,-1000]
 	upper_band_kms = [1000,1700]
 
+	if line_name == 'H2(2-1)S(2)':
+		upper_band_kms = [800, 1250]
+
+	if line_name == 'Brgamma':
+		lower_band_kms = [-1000, -500]
+
+	if line_name == 'H2(1-0)S(0)':
+		lower_band_kms = [-1700, -1200]
+		upper_band_kms = [1100,1600]
+
+	if line_name == 'H2(2-1)S(3)':
+		lower_band_kms = [-1800, -800]
+		upper_band_kms = [800,1800]
+
+	if line_name == 'H2(2-1)S(1)':
+		lower_band_kms = [-2000, -1000]
+		upper_band_kms = [700,1400]
+
+
 	lower_ind1 = np.where(line_vel > lower_band_kms[0])
 	lower_ind2 = np.where(line_vel < lower_band_kms[1])
 	lower_ind = np.intersect1d(lower_ind1, lower_ind2)
@@ -124,7 +142,8 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 	residuals_std = np.nanstd(fit_residuals)
 
 	sclip_keep_ind = np.where(fit_residuals < 3*residuals_std)[0]
-	residuals_clip_std = np.nanstd(fit_residuals[sclip_keep_ind]) / np.sqrt(len(sclip_keep_ind))
+	residuals_clip_std = np.nanstd(fit_residuals[sclip_keep_ind])
+	cont_serr = residuals_clip_std / np.sqrt(len(sclip_keep_ind))
 
 	outlier_ind = np.where(fit_residuals > 5*residuals_std)[0]
 
@@ -136,10 +155,10 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 		upper_full_ind = upper_ind[upper_outlier_ind]
 		full_ind = np.concatenate((lower_full_ind, upper_full_ind))
 
-		cont_fit, residuals_clip_std, mask_ind = fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=full_ind)
+		cont_fit, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=full_ind)
 
 
-	return cont_fit, residuals_clip_std, mask_ind
+	return cont_fit, residuals_clip_std, cont_serr, mask_ind
 
 
 def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, start, bounds, xy_loc, runID, plot=False, mask_ind=None):
@@ -148,9 +167,11 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 	contsub_spec = spectrum_fit - cont_fit
 	#spectrum_err_fit = None
 
+	print(f'fitting {line_name} for bin {xy_loc}.')
+
+
 	popt, pcov = curve_fit(gauss_sum, wave_vel_fit, contsub_spec, sigma=spectrum_err_fit, p0=start, bounds=bounds, absolute_sigma=True, maxfev=5000)
 
-	print(f'{line_name} fitted for bin {xy_loc}.')
 
 	if plot == True:
 		fig = plt.figure(figsize=(6,8))
@@ -159,8 +180,8 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 		ax0 = fig.add_subplot(gs[0,0])
 		ax1 = fig.add_subplot(gs[1,0], sharex=ax0)
 
-		amp1 = np.round(popt[1] * 1e18)
-		amp2 = np.round(popt[4] * 1e18)
+		amp1 = np.round(popt[1])
+		amp2 = np.round(popt[4])
 		sig1 = int(np.round(popt[2]))
 		sig2 = int(np.round(popt[5]))
 
@@ -173,7 +194,7 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 		if mask_ind is not None:
 			ax0.plot(wave_vel_fit[mask_ind]-galv.value, spectrum_fit[mask_ind], color='tab:red', linestyle='-', marker='x')
 
-		ax0.text(0, 1.1, start, transform=ax0.transAxes)
+		#ax0.text(0, 1.1, start, transform=ax0.transAxes)
 
 		ax0.axvspan(-1700, -1000, color='tab:red', alpha=0.1)
 		ax0.axvspan(1000, 1700, color='tab:red', alpha=0.1)
@@ -213,24 +234,32 @@ def compute_flux(popt, pcov, line_wave):
 	width1 = popt[2] * u.km/u.s
 	amp1 = popt[1] #* u.erg/u.s/u.cm**2/u.AA
 	wave_width1 = ((width1 / const.c) * line_wave).to(u.angstrom).value
-	width2 = popt[5] * u.km/u.s
-	amp2 = popt[4] #* u.erg/u.s/u.cm**2/u.AA
-	wave_width2 = ((width2 / const.c) * line_wave).to(u.angstrom).value
 
 	amp1_err = np.sqrt(pcov[1,1]) #wrong with unit conversion
 	width1_err = np.sqrt(pcov[2,2]) * u.km/u.s
 	wave_width1_err = ((width1_err / const.c) * line_wave).to(u.angstrom).value
-	amp2_err = np.sqrt(pcov[4,4])
-	width2_err = np.sqrt(pcov[5,5]) * u.km/u.s
-	wave_width2_err = ((width2_err / const.c) * line_wave).to(u.angstrom).value
 
-	total_flux = np.sqrt(2 * np.pi) * ((wave_width1 * amp1) + (wave_width2 * amp2))
-	total_flux_err = np.sqrt(2*np.pi) * np.sqrt((wave_width1*amp1_err)**2 + (amp1*wave_width1_err)**2 + (wave_width2*amp2_err)**2 + (amp2*wave_width2_err)**2)
+	if len(popt) > 3:
+		width2 = popt[5] * u.km/u.s
+		amp2 = popt[4] #* u.erg/u.s/u.cm**2/u.AA
+		wave_width2 = ((width2 / const.c) * line_wave).to(u.angstrom).value
+
+		amp2_err = np.sqrt(pcov[4,4])
+		width2_err = np.sqrt(pcov[5,5]) * u.km/u.s
+		wave_width2_err = ((width2_err / const.c) * line_wave).to(u.angstrom).value
+
+		total_flux = np.sqrt(2 * np.pi) * ((wave_width1 * amp1) + (wave_width2 * amp2))
+		total_flux_err = np.sqrt(2*np.pi) * np.sqrt((wave_width1*amp1_err)**2 + (amp1*wave_width1_err)**2 + (wave_width2*amp2_err)**2 + (amp2*wave_width2_err)**2)
+
+	else:
+		total_flux = np.sqrt(2 * np.pi) * ((wave_width1 * amp1))
+		total_flux_err = np.sqrt(2*np.pi) * np.sqrt((wave_width1*amp1_err)**2 + (amp1*wave_width1_err)**2)
+
 
 	return total_flux, total_flux_err
 
 
-def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final.fits', ncomp=2):
+def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs.fits', ncomp=2):
 	## fit the NIFS cube, fitting each line with the desired number of components
 	# loop through starting at the center and spiral outwards, with the previous bin acting as the the starting parameters for the next
 	
@@ -280,7 +309,7 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 		spectrum = cube[:,y_loc,x_loc] * u.erg / u.cm**2 / u.s / u.AA
 		#spectrum_err = np.sqrt(np.abs(error_cube[:,y_loc,x_loc])) #sqrt bc this cube is the variance
 
-		if len(spectrum[np.isnan(spectrum)]) > 0.3 * len(spectrum) or len(spectrum[spectrum==0]) > 0.3 * len(spectrum):
+		if len(spectrum[np.isnan(spectrum)]) > 0.2 * len(spectrum) or len(spectrum[spectrum==0]) > 0.2 * len(spectrum):
 			continue
 
 		save_dict['bin_num'].append(bn)
@@ -315,6 +344,13 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 			#format is ([lower bounds], [upper bounds])
 			bounds = ([galv.value - 500, peak_flux * 0.1, 20, galv.value - 500, 0, 50], [galv.value + 500, peak_flux*10, 600, galv.value + 500, peak_flux*10, 600])
 
+		elif np.abs(prev_fit_params[0] - galv.value) > 1000: #if the previous fit guess is getting way off, then re-center
+			#initial guess if of 2 components, one wider with 1/3 the flux
+			start = [peak_vel, peak_flux, 200, peak_vel, peak_flux*0.25, 400]
+
+			#format is ([lower bounds], [upper bounds])
+			bounds = ([galv.value - 500, peak_flux * 0.1, 20, galv.value - 500, 0, 50], [galv.value + 500, peak_flux*10, 600, galv.value + 500, peak_flux*10, 600])
+
 		else:
 			start = [prev_fit_params[0], peak_flux, prev_fit_params[2], prev_fit_params[0], peak_flux*0.25, prev_fit_params[5]]
 			#currently these bounds are not very limiting
@@ -327,7 +363,7 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 
 		#line_spec_err[line_spec_err == 0] = np.nanmedian(line_spec_err)
 
-		cont_fit, cont_std, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=1, mask_ind=None)
+		cont_fit, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=1, mask_ind=None)
 		cont_std_err = np.repeat(cont_std, line_spec.shape)
 
 		popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind)
@@ -365,22 +401,56 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 
 			line_spec = spectrum[fit_ind].squeeze().value
 			line_vel = wave_vel[fit_ind].squeeze()
+
+			if line_name == 'H2(1-0)Q(1)': #fixing situations where the last number of points are all zeros
+				
+				line_spec = np.trim_zeros(line_spec, 'b')
+				line_vel = line_vel[:len(line_spec)]
+
+				if len(line_vel) == 0:
+					save_dict[f'{line_name}_mask'].append(0)
+					save_dict[f'{line_name}_flux'].append(np.nan)
+					save_dict[f'{line_name}_flux_err'].append(np.nan)
+					continue
+				elif line_vel[-1] - galv < 500*u.km/u.s:
+					save_dict[f'{line_name}_mask'].append(0)
+					save_dict[f'{line_name}_flux'].append(np.nan)
+					save_dict[f'{line_name}_flux_err'].append(np.nan)
+					continue
+
+
 			#line_spec_err = np.sqrt(np.abs(spectrum_err[fit_ind].squeeze()))
 
 			#perform linear continuum subtraction
-			cont_fit, cont_std, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=1, mask_ind=None)
+			cont_fit, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=1, mask_ind=None)
 			cont_std_err = np.repeat(cont_std, line_spec.shape)
 
 			contsub_spec = line_spec - cont_fit
 			peak_flux = np.nanmax(contsub_spec)
 			
-			#if peak_flux <= 3*cont_std: #figure out upper limits later
-			#	save_dict[f'{line_name}_flux'].append(np.nan)
-			#	save_dict[f'{line_name}_flux_err'].append(np.nan)
-			#	continue
+			if np.abs(peak_flux) < 1e-30: #there is nothing here, not even noise
+				save_dict[f'{line_name}_mask'].append(0)
+				save_dict[f'{line_name}_flux'].append(np.nan)
+				save_dict[f'{line_name}_flux_err'].append(np.nan)
+				continue
+
+			if peak_flux <= 3*cont_std: #skip fitting and go straight to upper limit calculation
+				if line_name == 'Brgamma':
+						ulim_width = 150 #km/s, from Davis12 spectrum
+				else:
+					ulim_width = np.max((prev_fit_params[2], prev_fit_params[5])) #larger width of the two gaussians
+
+				ulim_amp = 3 * cont_serr
+				ulim_flux = np.sqrt(2 * np.pi) * (ulim_width * ulim_amp)
+
+				save_dict[f'{line_name}_mask'].append(0)
+				save_dict[f'{line_name}_flux'].append(ulim_flux)
+				save_dict[f'{line_name}_flux_err'].append(np.nan)
+				continue
 
 			#use H2_212 fit for initial conditions
 			#initial guess is of 2 components, one wider with 1/3 the flux
+
 			start = [prev_fit_params[0], peak_flux, prev_fit_params[2], prev_fit_params[0], peak_flux*0.25, prev_fit_params[5]]
 			#currently these bounds are not very limiting
 			width_upper_1 = np.min((prev_fit_params[2]*2, 600))
@@ -389,15 +459,24 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 			width_lower_2 = np.max((prev_fit_params[5]*0.5, 20))
 			bounds = ([prev_fit_params[0]-400, peak_flux*0.1, width_lower_1, prev_fit_params[0]-700, peak_flux*0.01, width_lower_2],
 						[prev_fit_params[0]+400, peak_flux*3, width_upper_1, prev_fit_params[0]+700, peak_flux*3, width_upper_2])
+
+
+			#if line_name == 'H2(1-0)Q(1)': #need custom fitting for this line bc otherwise sometimes it goes out of bounds w prev fit guess
+			#peak_flux = np.nanmax(line_spec)
+			#peak_ind = np.where(line_spec == peak_flux)[0][0]
+			#peak_vel = line_vel[peak_ind].value
+
+			#start = [peak_vel, peak_flux, 200, peak_vel, peak_flux*0.25, 400]
+
+			#bounds = ([peak_vel - 500, peak_flux * 0.1, 20, peak_vel - 500, 0, 50], [line_vel[-1].value, peak_flux*10, 600, line_vel[-1].value, peak_flux*10, 600])
+
+
 		
 			#line_spec_err[line_spec_err == 0] = np.nanmedian(line_spec_err)
-			try:
-				popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind)
+			#try:
+			popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind)
 
-			except ValueError:
-				print(start)
-				print(bounds)
-				print(line_spec)
+			#except RuntimeError: #if fitting fails
 
 			total_flux, total_flux_err = compute_flux(popt, pcov, line_wave)
 
@@ -414,7 +493,7 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 				else:
 					ulim_width = np.max((prev_fit_params[2], prev_fit_params[5])) #larger width of the two gaussians
 
-				ulim_amp = 3 * cont_std
+				ulim_amp = 3 * cont_serr
 				ulim_flux = np.sqrt(2 * np.pi) * (ulim_width * ulim_amp)
 
 				save_dict[f'{line_name}_mask'].append(0)
@@ -435,7 +514,7 @@ def csv_to_maps(csv_path, save_name):
 	fit_tab = Table.read(csv_path, format='csv')
 
 
-	cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final.fits'
+	cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs.fits'
 	cube_fl = fits.open(cube_file)
 	cube_header = cube_fl[1].header
 	cube_wcs = WCS(cube_header).celestial
@@ -482,7 +561,7 @@ def csv_to_maps(csv_path, save_name):
 		maps_header[f'DESC{map_ind*3+5}'] = f'{line_name}_flux_err'
 		maps_header[f'DESC{map_ind*3+6}'] = f'{line_name}_mask'
 
-	maps_header['FLUX_UNIT'] = '??'#'erg/s/cm**2'
+	maps_header['FLUX_UNIT'] = 'erg/s/cm**2'
 
 	new_hdu = fits.PrimaryHDU(map_cube, header=maps_header)
 	hdulist = fits.HDUList([new_hdu])
@@ -494,10 +573,10 @@ def csv_to_maps(csv_path, save_name):
 	print(f'saved to {savefile}')
 
 
-fit_cube(runID='c2run2')
+#fit_cube(runID='c2run3')
 
-csv_path = '/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/c2run2_gaussfit.csv'
-save_name = 'c2run2_gaussfit_maps'
+#csv_path = '/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/c2run3_gaussfit.csv'
+#save_name = 'c2run3_gaussfit_maps'
 
-csv_to_maps(csv_path, save_name)
+#csv_to_maps(csv_path, save_name)
 
