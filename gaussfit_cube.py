@@ -289,7 +289,8 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 	x,y = np.meshgrid(np.arange(cube_data.shape[2]), np.arange(cube_data.shape[1]))
 
 	#write code to automate this for all lines in line_list
-	save_dict = {'bin_num':[], 'x':[], 'y':[], 'vel_c1':[], 'vel_c1_err':[], 'vel_c2':[], 'vel_c2_err':[]}
+	save_dict = {'bin_num':[], 'x':[], 'y':[], 'vel_c1':[], 'vel_c1_err':[], 'vel_c2':[], 'vel_c2_err':[], 'sigma_c1':[],
+				'sigma_c1_err':[], 'sigma_c2':[], 'sigma_c2_err':[],}
 	for line_name in line_dict.keys():
 		save_dict[f'{line_name}_flux'] = []
 		save_dict[f'{line_name}_flux_err'] = []
@@ -445,6 +446,12 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 		save_dict['vel_c2'].append(popt[3])
 		save_dict['vel_c2_err'].append(np.sqrt(pcov[3,3]))
 
+		save_dict['sigma_c1'].append(popt[2])
+		save_dict['sigma_c1_err'].append(np.sqrt(pcov[2,2]))
+		save_dict['sigma_c2'].append(popt[5])
+		save_dict['sigma_c2_err'].append(np.sqrt(pcov[5,5]))
+
+
 		prev_fit_params = popt
 
 		for line_name in line_dict.keys():
@@ -578,7 +585,7 @@ def csv_to_maps(csv_path, save_name):
 
 	binNum_2D = np.full(map_shape, np.nan)
 
-	n_maps = len(line_dict.keys())*3 + 4
+	n_maps = len(line_dict.keys())*3 + 8
 	map_cube = np.full((n_maps,map_shape[0],map_shape[1]), np.nan)
 
 	for ind, bn in enumerate(fit_tab['bin_num']):
@@ -591,6 +598,11 @@ def csv_to_maps(csv_path, save_name):
 		map_cube[1, y_loc, x_loc] = fit_tab['vel_c1_err'][ind]
 		map_cube[2, y_loc, x_loc] = fit_tab['vel_c2'][ind]
 		map_cube[3, y_loc, x_loc] = fit_tab['vel_c2_err'][ind]
+
+		map_cube[4, y_loc, x_loc] = fit_tab['sigma_c1'][ind]
+		map_cube[5, y_loc, x_loc] = fit_tab['sigma_c1_err'][ind]
+		map_cube[6, y_loc, x_loc] = fit_tab['sigma_c2'][ind]
+		map_cube[7, y_loc, x_loc] = fit_tab['sigma_c2_err'][ind]
 
 		for map_ind, line_name in enumerate(line_dict.keys()):
 
@@ -609,10 +621,15 @@ def csv_to_maps(csv_path, save_name):
 	maps_header['DESC2'] = 'Velocity component 2'
 	maps_header['DESC3'] = 'Velocity component 2 error'
 
+	maps_header['DESC4'] = 'Sigma component 1'
+	maps_header['DESC5'] = 'Sigma component 1 error'
+	maps_header['DESC6'] = 'Sigma component 2'
+	maps_header['DESC7'] = 'Sigma component 2 error'
+
 	for map_ind, line_name in enumerate(line_dict.keys()):
-		maps_header[f'DESC{map_ind*3+4}'] = f'{line_name}_flux'
-		maps_header[f'DESC{map_ind*3+5}'] = f'{line_name}_flux_err'
-		maps_header[f'DESC{map_ind*3+6}'] = f'{line_name}_mask'
+		maps_header[f'DESC{map_ind*3+8}'] = f'{line_name}_flux'
+		maps_header[f'DESC{map_ind*3+9}'] = f'{line_name}_flux_err'
+		maps_header[f'DESC{map_ind*3+10}'] = f'{line_name}_mask'
 
 	maps_header['FLUX_UNIT'] = 'erg/s/cm**2'
 
