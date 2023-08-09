@@ -15,9 +15,9 @@ import os
 #########
 # Script to fit NIFS lines with gaussian
 
-#line_dict = {'H2(1-0)S(2)':2.0332, 'H2(1-0)S(1)':2.1213, 'H2(1-0)S(0)':2.2230, 'H2(2-1)S(1)':2.2470, 'H2(2-1)S(2)':2.1542, 'Brgamma':2.1654, 'H2(2-1)S(3)':2.0735, 'H2(1-0)Q(1)':2.4066}
+line_dict = {'H2(1-0)S(2)':2.0332, 'H2(1-0)S(1)':2.1213, 'H2(1-0)S(0)':2.2230, 'H2(2-1)S(1)':2.2470, 'H2(2-1)S(2)':2.1542, 'Brgamma':2.1654, 'H2(2-1)S(3)':2.0735, 'H2(1-0)Q(1)':2.4066}
 
-line_dict = {'H2(1-0)S(1)':2.1213}
+#line_dict = {'H2(1-0)S(1)':2.1213, 'H2(1-0)Q(1)':2.4066}
 
 
 z = 0.007214         # NGC 1266 redshift, from SIMBAD
@@ -111,6 +111,8 @@ def fit_continuum(spectrum, line_vel, line_name, degree=1, mask_ind=None):
 		lower_band_kms = [-2000, -1000]
 		upper_band_kms = [700,1400]
 
+	if line_name == 'H2(1-0)Q(1)':
+		lower_band_kms = [-2000, -750]
 
 	lower_ind1 = np.where(line_vel > lower_band_kms[0])
 	lower_ind2 = np.where(line_vel < lower_band_kms[1])
@@ -135,12 +137,17 @@ def fit_continuum(spectrum, line_vel, line_name, degree=1, mask_ind=None):
 
 	cont_params = output.beta
 
+	if degree == 0:
+		cont_fit = line_vel * 0 + cont_params[0]
+		fit_residuals = fit_spec - (fit_wave * 0 + cont_params[0])
+
 	if degree == 1:
 		cont_fit = line_vel * cont_params[1] + cont_params[0]
+		fit_residuals = fit_spec - (fit_wave * cont_params[1] + cont_params[0])
 
 	spectrum_contsub = spectrum - cont_fit
 
-	fit_residuals = fit_spec - (fit_wave * cont_params[1] + cont_params[0])
+	
 	residuals_std = np.nanstd(fit_residuals)
 
 	sclip_keep_ind = np.where(fit_residuals < 3*residuals_std)[0]
@@ -157,7 +164,7 @@ def fit_continuum(spectrum, line_vel, line_name, degree=1, mask_ind=None):
 		upper_full_ind = upper_ind[upper_outlier_ind]
 		full_ind = np.concatenate((lower_full_ind, upper_full_ind))
 
-		cont_fit, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, line_vel, line_name, degree=1, mask_ind=full_ind)
+		cont_fit, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, line_vel, line_name, degree=degree, mask_ind=full_ind)
 
 
 	return cont_fit, residuals_clip_std, cont_serr, mask_ind
@@ -361,7 +368,6 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 									bounds = ([galv.value - 500, peak_flux * 0.1, 20, galv.value - 500, 0, 50], [galv.value + 500, peak_flux*10, 600, galv.value + 500, peak_flux*10, 600])'''
 						
 		else:
-
 			component_offset = prev_fit_params[0] - prev_fit_params[3] #offset btwn 2 gaussians
 			comp2_start = prev_fit_params[0] - component_offset/5
 
@@ -425,11 +431,10 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 			line_ind = np.intersect1d(line_ind1, line_ind2)
 			sum_flux = np.nansum(line_spec[line_ind])
 
-			print(sum_flux/total_flux)
-
 
 		save_dict[f'{line_name}_flux'].append(total_flux)
 		save_dict[f'{line_name}_flux_err'].append(total_flux_err)
+
 		if total_flux >= total_flux_err * 3:
 			save_dict[f'{line_name}_mask'].append(1)
 		else:
@@ -448,9 +453,9 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 
 			line_wave = line_dict[line_name] * u.micron
 
-			wave_to_vel = u.doppler_optical(line_wave)
+			cube_vel_obs = cube.with_spectral_unit(u.km/u.s, velocity_convention='optical', rest_value=line_wave)
+			wave_vel = cube_vel_obs.spectral_axis - galv
 
-			wave_vel = obs_wave.to(u.km/u.s, equivalencies=wave_to_vel)
 			fit_ind1 = np.where(wave_vel > -2000* u.km/u.s)
 			fit_ind2 = np.where(wave_vel < 2000* u.km/u.s)
 			fit_ind = np.intersect1d(fit_ind1, fit_ind2)
@@ -458,27 +463,28 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 			line_spec = spectrum[fit_ind].squeeze().value
 			line_vel = wave_vel[fit_ind].squeeze()
 
+			cont_degree = 1
+
 			if line_name == 'H2(1-0)Q(1)': #fixing situations where the last number of points are all zeros
-				
+
 				line_spec = np.trim_zeros(line_spec, 'b')
 				line_vel = line_vel[:len(line_spec)]
+
+				cont_degree = 0 #fit 0 order poly for continuum bc only one side of continuum
 
 				if len(line_vel) == 0:
 					save_dict[f'{line_name}_mask'].append(0)
 					save_dict[f'{line_name}_flux'].append(np.nan)
 					save_dict[f'{line_name}_flux_err'].append(np.nan)
 					continue
-				elif line_vel[-1] < 500*u.km/u.s:
+				elif line_vel[-1] < 350*u.km/u.s: #only fit where there is enough data at the end
 					save_dict[f'{line_name}_mask'].append(0)
 					save_dict[f'{line_name}_flux'].append(np.nan)
 					save_dict[f'{line_name}_flux_err'].append(np.nan)
 					continue
 
-
-			#line_spec_err = np.sqrt(np.abs(spectrum_err[fit_ind].squeeze()))
-
 			#perform linear continuum subtraction
-			cont_fit, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=1, mask_ind=None)
+			cont_fit, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=cont_degree, mask_ind=None)
 			cont_std_err = np.repeat(cont_std, line_spec.shape)
 
 			contsub_spec = line_spec - cont_fit
@@ -490,7 +496,7 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 				save_dict[f'{line_name}_flux_err'].append(np.nan)
 				continue
 
-			if peak_flux <= 3*cont_std: #skip fitting and go straight to upper limit calculation
+			if peak_flux <= 2*cont_std: #skip fitting and go straight to upper limit calculation
 				if line_name == 'Brgamma':
 						ulim_width = 150 #km/s, from Davis12 spectrum
 				else:
@@ -505,12 +511,12 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 				continue
 
 			#use H2_212 fit for initial conditions
-			#initial guess is of 2 components, one wider with 1/3 the flux
+			#initial guess is of 2 components, one wider with 1/4 the flux
 
 			start = [prev_fit_params[0], peak_flux, prev_fit_params[2], prev_fit_params[0], peak_flux*0.25, prev_fit_params[5]]
 			#currently these bounds are not very limiting
-			width_upper_1 = np.min((prev_fit_params[2]*2, 600))
-			width_upper_2 = np.min((prev_fit_params[5]*2, 600))
+			width_upper_1 = np.min((prev_fit_params[2]*2, 400))
+			width_upper_2 = np.min((prev_fit_params[5]*2, 400))
 			width_lower_1 = np.max((prev_fit_params[2]*0.5, 20))
 			width_lower_2 = np.max((prev_fit_params[5]*0.5, 20))
 			bounds = ([prev_fit_params[0]-400, peak_flux*0.1, width_lower_1, prev_fit_params[0]-700, peak_flux*0.01, width_lower_2],
@@ -526,17 +532,8 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 
 			#bounds = ([peak_vel - 500, peak_flux * 0.1, 20, peak_vel - 500, 0, 50], [line_vel[-1].value, peak_flux*10, 600, line_vel[-1].value, peak_flux*10, 600])
 
-
-		
-			#line_spec_err[line_spec_err == 0] = np.nanmedian(line_spec_err)
-			#try:
 			popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind)
-
-			#except RuntimeError: #if fitting fails
-
 			total_flux, total_flux_err = compute_flux(popt, pcov, line_wave)
-
-			#total_flux_old = np.sum(gauss_sum(line_vel.value, *popt))
 
 			if total_flux >= total_flux_err * 3:#if 3-sigma detection
 				save_dict[f'{line_name}_flux'].append(total_flux)
