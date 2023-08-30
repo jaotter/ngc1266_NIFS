@@ -610,9 +610,9 @@ def csv_to_maps(csv_path, save_name):
 			line_flux_err = fit_tab[f'{line_name}_flux_err'][ind]
 			line_mask = fit_tab[f'{line_name}_mask'][ind]
 
-			map_cube[map_ind*3+4, y_loc, x_loc] = line_flux
-			map_cube[map_ind*3+1+4, y_loc, x_loc] = line_flux_err
-			map_cube[map_ind*3+2+4, y_loc, x_loc] = line_mask
+			map_cube[map_ind*3+8, y_loc, x_loc] = line_flux
+			map_cube[map_ind*3+1+8, y_loc, x_loc] = line_flux_err
+			map_cube[map_ind*3+2+8, y_loc, x_loc] = line_mask
 
 	maps_header = cube_wcs.to_header()
 
