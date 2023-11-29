@@ -48,7 +48,7 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 		lower_band_kms = [-1000, -500]
 
 	if line_name == 'H2(1-0)S(0)':
-		lower_band_kms = [-1700, -1200]
+		lower_band_kms = [-1850, -1200]
 		upper_band_kms = [1100,1600]
 
 	if line_name == 'H2(2-1)S(3)':
@@ -336,6 +336,168 @@ def spectrum_figure(spectrum, fit_dict, savename):
 	ax0.set_xlabel(r'Observed Wavelength ($\mu$m)', size=12)
 	ax0.tick_params(axis='both', labelsize=12)
 
+	ax0.set_ylabel(r'Flux (10$^{-16}$ erg/s/cm$^2$/$\AA$)', size=14)
+
+	ax1 = fig.add_subplot(gs[0,0])
+	ax2 = fig.add_subplot(gs[0,1])
+	ax3 = fig.add_subplot(gs[0,2])
+	ax4 = fig.add_subplot(gs[0,3])
+
+	ax5 = fig.add_subplot(gs[3,0])
+	ax6 = fig.add_subplot(gs[3,1])
+	ax7 = fig.add_subplot(gs[3,2])
+	ax8 = fig.add_subplot(gs[3,3])
+
+	line_ax = [ax1, ax5, ax2, ax6, ax3, ax7, ax4, ax8]
+	line_name_list_full = [r'H$_2$(1-0)S(2)', r'H$_2$(2-1)S(3)', r'H$_2$(1-0)S(1)', r'H$_2$(2-1)S(2)', r'Br$\gamma$', r'H$_2$(1-0)S(0)', r'H$_2$(2-1)S(1)', r'H$_2$(1-0)Q(1)']
+	color_list = ['tab:blue', 'tab:red', 'tab:orange', 'tab:green', 'tab:pink', 'tab:olive', 'tab:cyan', 'tab:brown']
+
+	for i, line_name in enumerate(line_dict):
+		ax = line_ax[i]
+		line_wave = line_dict[line_name]
+		fit_returns = fit_dict[line_name]
+		fit_params = fit_returns[0]
+		cont_fit = fit_returns[2]
+
+		ax.set_title(line_name_list_full[i])
+
+		spec_kms = spectrum.with_spectral_unit(u.km/u.s, velocity_convention='optical', rest_value=line_wave*u.micron)
+
+		fit_ind1 = np.where(spec_kms.spectral_axis > galv-2000* u.km/u.s)
+		fit_ind2 = np.where(spec_kms.spectral_axis < galv+2000* u.km/u.s)
+		fit_ind = np.intersect1d(fit_ind1, fit_ind2)
+		fit_spec = spec_kms[fit_ind]
+		fit_spec_vel = spec_kms.spectral_axis[fit_ind].value
+
+		ax.plot(fit_spec_vel - galv.value, fit_spec*1e16)
+
+		contsub_spec = fit_spec - cont_fit
+
+		ax.plot(fit_spec_vel-galv.value, (gauss_sum(fit_spec_vel, *fit_params[0:3]) + cont_fit)*1e16, linestyle='--', color='tab:purple')
+		ax.plot(fit_spec_vel-galv.value, (gauss_sum(fit_spec_vel, *fit_params[3:6]) + cont_fit)*1e16, linestyle='-', color='tab:purple')
+		ax.plot(fit_spec_vel-galv.value, cont_fit*1e16, linestyle='-', color='tab:orange')
+		ax.plot(fit_spec_vel-galv.value, (cont_fit + gauss_sum(fit_spec_vel, *fit_params))*1e16, linestyle='-', color='k')
+
+		ax.set_xlabel('Velocity (km/s)', fontsize=12)
+
+		ax.tick_params(axis='both', labelsize=12)
+
+		if i == 5 and savename == 'circ_100pc':
+			ax.set_yticks([8,10,12])
+
+		if i != 7:
+			ax.set_xlim(-1250,1250)
+			ax.set_xticks([-1000, 0, 1000])
+			ax.axvspan(-1500,1500, color=color_list[i], alpha=0.2)
+
+		else:
+			ax.set_xlim(-1500, 500)
+			ax.set_xticks([-1000, 0, 500])
+			ax.axvspan(-1500,500, color=color_list[i], alpha=0.2)
+
+		obs_wave = line_wave * (1+z)
+		ax0.axvspan(obs_wave-5e-3, obs_wave+5e-3, color=color_list[i], alpha=0.2)
+
+	plt.savefig(f'plots/NIFS_{savename}_spec_noarr.png', dpi=300, bbox_inches='tight')
+
+	#xy_1 = [2.048, 18]
+	#xy_1 = [2.048, 28]
+	xy_1 = [0.102, 0.9]
+	xy_ax1 = [0.5, -0.4]
+	arrow1 = ConnectionPatch(xyA=xy_1, coordsA=ax0.transAxes, xyB=xy_ax1, coordsB=ax1.transAxes, arrowstyle='-|>', fc=color_list[0])
+	fig.add_artist(arrow1)
+
+	#xy_2 = [2.14, 30]
+	#xy_2 = [2.14, 28]
+	xy_2 = [0.315, 0.97]
+	xy_ax2 = [0.5, -0.4]
+	arrow2 = ConnectionPatch(xyA=xy_2, coordsA=ax0.transAxes, xyB=xy_ax2, coordsB=ax2.transAxes, arrowstyle='-|>', fc=color_list[2])
+	fig.add_artist(arrow2)
+
+	#xy_3 = [2.182, 10]
+	#xy_3 = [2.182, 28]
+	xy_3 = [0.415, 0.9]
+	xy_ax3 = [0.5, -0.4]
+	arrow3 = ConnectionPatch(xyA=xy_3, coordsA=ax0.transAxes, xyB=xy_ax3, coordsB=ax3.transAxes, arrowstyle='-|>', fc=color_list[4])
+	fig.add_artist(arrow3)
+
+	#xy_4 = [2.265, 11]
+	#xy_4 = [2.265, 28]
+	xy_4 = [0.61, 0.9]
+	xy_ax4 = [0.5, -0.4]
+	arrow4 = ConnectionPatch(xyA=xy_4, coordsA=ax0.transAxes, xyB=xy_ax4, coordsB=ax4.transAxes, arrowstyle='-|>', fc=color_list[6])
+	fig.add_artist(arrow4)
+
+	#xy_5 = [2.087, 8]
+	#xy_5 = [2.087, 6]
+	xy_5 = [0.2, 0.1]
+	xy_ax5 = [0.5, 1.2]
+	arrow5 = ConnectionPatch(xyA=xy_5, coordsA=ax0.transAxes, xyB=xy_ax5, coordsB=ax5.transAxes, arrowstyle='-|>', fc=color_list[1])
+	fig.add_artist(arrow5)
+
+	#xy_6 = [2.169, 8]
+	#xy_6 = [2.169, 6]
+	xy_6 = [0.39, 0.1]
+	xy_ax6 = [0.3, 1.2]
+	arrow6 = ConnectionPatch(xyA=xy_6, coordsA=ax0.transAxes, xyB=xy_ax6, coordsB=ax6.transAxes, arrowstyle='-|>', fc=color_list[3])
+	fig.add_artist(arrow6)
+
+	#xy_7 = [2.24, 8]
+	#xy_7 = [2.24, 6]
+	xy_7 = [0.55, 0.1]
+	xy_ax7 = [0.7, 1.2]
+	arrow7= ConnectionPatch(xyA=xy_7, coordsA=ax0.transAxes, xyB=xy_ax7, coordsB=ax7.transAxes, arrowstyle='-|>', fc=color_list[5])
+	fig.add_artist(arrow7)
+
+	#xy_8 = [2.423, 6]
+	xy_8 = [0.98, 0.095]
+	xy_ax8 = [0.5, 1.2]
+	arrow8 = ConnectionPatch(xyA=xy_8, coordsA=ax0.transAxes, xyB=xy_ax8, coordsB=ax8.transAxes, arrowstyle='-|>', fc=color_list[7])
+	fig.add_artist(arrow8)
+
+	plt.savefig(f'plots/NIFS_{savename}_spec.png', dpi=300, bbox_inches='tight')
+
+
+def save_fluxes(fit_dict, savename):
+
+	save_tab = Table()
+
+	save_tab['Flux_type'] = ['Total', 'Comp1', 'Comp2']
+
+	for i, line_name in enumerate(fit_dict.keys()):
+
+		line_wave = line_dict[line_name]
+
+		fit_returns = fit_dict[line_name]
+		fit_params = fit_returns[0]
+		fit_cov = fit_returns[1]
+		cont_fit = fit_returns[2]
+
+		obs_wave = line_wave * (1+z) * u.micron
+		total_flux, total_flux_err = compute_flux(fit_params, fit_cov, obs_wave)
+
+		comp1_flux, comp1_flux_err = compute_flux(fit_params[0:3], fit_cov[0:3], obs_wave)
+		comp2_flux, comp2_flux_err = compute_flux(fit_params[3:6], fit_cov[3:6], obs_wave)
+
+		save_tab[f'{line_name}_flux'] = [total_flux, comp1_flux, comp2_flux]
+		save_tab[f'{line_name}_flux_err'] = [total_flux_err, comp1_flux_err, comp2_flux_err]
+
+	save_tab.write(f'/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/{savename}.csv', format='csv', overwrite=True)
+
+
+
+def spectrum_figure_multispec(spectrum_list, fit_dict_list, savename):
+	fig = plt.figure(figsize=(10,10))
+	gs = GridSpec(4,4, wspace=0.25, hspace=0.6)
+
+	ax0 = fig.add_subplot(gs[1:3, 0:4])
+
+	ax0.plot(spectrum.spectral_axis.to(u.micron), spectrum*1e16)
+
+	ax0.set_xlim(2.005, 2.43)
+	ax0.set_xlabel(r'Observed Wavelength ($\mu$m)', size=12)
+	ax0.tick_params(axis='both', labelsize=12)
+
 	ax0.set_ylabel(r'Flux (10$^{-16}$ erg/s/cmf$^2$/$\AA$)', size=14)
 
 	ax1 = fig.add_subplot(gs[0,0])
@@ -498,11 +660,11 @@ line_dict = {'H2(1-0)S(2)':2.0332, 'H2(2-1)S(3)':2.0735, 'H2(1-0)S(1)':2.1213, '
 #spectrum_figure(spec, fit_dict, 'circ_50pc_cent')
 #save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent')
 
-pixcent=[22,42]
-spec = extract_spectrum('circle', [50]*u.pc, pixcent)
-fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x22y42')
-spectrum_figure(spec, fit_dict, 'circ_50pc_x22y42')
-save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x22y42')
+#pixcent=[22,42]
+#spec = extract_spectrum('circle', [50]*u.pc, pixcent)
+#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x22y42')
+#spectrum_figure(spec, fit_dict, 'circ_50pc_x22y42')
+#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x22y42')
 
 #pixcent=[62,22]
 #spec = extract_spectrum('circle', [50]*u.pc, pixcent)
@@ -510,6 +672,10 @@ save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x22y42')
 #spectrum_figure(spec, fit_dict, 'circ_50pc_x62y22')
 #save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x62y22')
 
+pixcent=[52,66]
+spec = extract_spectrum('circle', [50]*u.pc, pixcent)
+fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x52y66_bg')
+spectrum_figure(spec, fit_dict, 'circ_50pc_x52y66_bg')
 
 
 

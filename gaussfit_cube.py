@@ -15,8 +15,8 @@ import os
 #########
 # Script to fit NIFS lines with gaussian
 
-line_dict = {'H2(1-0)S(2)':2.0332, 'H2(1-0)S(1)':2.1213, 'H2(1-0)S(0)':2.2230, 'H2(2-1)S(1)':2.2470, 'H2(2-1)S(2)':2.1542, 'Brgamma':2.1654, 'H2(2-1)S(3)':2.0735, 'H2(1-0)Q(1)':2.4066}
-
+#line_dict = {'H2(1-0)S(2)':2.0332, 'H2(1-0)S(1)':2.1213, 'H2(1-0)S(0)':2.2230, 'H2(2-1)S(1)':2.2470, 'H2(2-1)S(2)':2.1542, 'Brgamma':2.1654, 'H2(2-1)S(3)':2.0735, 'H2(1-0)Q(1)':2.4066}
+line_dict = {'H2(1-0)S(1)':2.1213, 'Brgamma':2.1654}
 #line_dict = {'H2(1-0)S(1)':2.1213, 'H2(1-0)Q(1)':2.4066}
 
 
@@ -574,7 +574,8 @@ def csv_to_maps(csv_path, save_name):
 	fit_tab = Table.read(csv_path, format='csv')
 
 
-	cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs.fits'
+	#cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs.fits'
+	cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/reduced_cubes/man_offset2/20141110_obs49_merged_wcs_trim.fits'
 	cube_fl = fits.open(cube_file)
 	cube_header = cube_fl[1].header
 	cube_wcs = WCS(cube_header).celestial
