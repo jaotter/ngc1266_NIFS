@@ -82,6 +82,7 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 	output = odr_obj.run()
 
 	cont_params = output.beta
+	#cont_params is [intercept, slope] with velocity as unit
 
 	if degree == 1:
 		cont_fit = wave_vel * cont_params[1] + cont_params[0]
@@ -105,20 +106,20 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 		upper_full_ind = upper_ind[upper_outlier_ind]
 		full_ind = np.concatenate((lower_full_ind, upper_full_ind))
 
-		cont_fit, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=full_ind)
+		cont_params, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=full_ind)
 
 
-	return cont_fit, residuals_clip_std, cont_serr, mask_ind
+	return cont_params, residuals_clip_std, cont_serr, mask_ind
 
 
-def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, start, bounds, xy_loc, runID, plot=False, mask_ind=None):
+def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_params, line_name, start, bounds, xy_loc, runID, ncomp=2, plot=False, mask_ind=None):
 	## function to fit line to continuum-subtracted spectrum, with start values, bounds, and varying number of gaussian components
 
-	contsub_spec = spectrum_fit - cont_fit
+	cont_fit = wave_vel_fit * cont_params[1] + cont_params[0]
+	contsub_spec = spectrum_fit - (cont_fit)
 	#spectrum_err_fit = None
 
 	print(f'fitting {line_name} for bin {xy_loc}.')
-
 
 	popt, pcov = curve_fit(gauss_sum, wave_vel_fit, contsub_spec, sigma=spectrum_err_fit, p0=start, bounds=bounds, absolute_sigma=True, maxfev=5000)
 
@@ -131,13 +132,18 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 		ax1 = fig.add_subplot(gs[1,0], sharex=ax0)
 
 		amp1 = np.round(popt[1])
-		amp2 = np.round(popt[4])
+
 		sig1 = int(np.round(popt[2]))
-		sig2 = int(np.round(popt[5]))
+
+
+		if ncomp == 2:
+			amp2 = np.round(popt[4])
+			sig2 = int(np.round(popt[5]))
+			ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[3:6]) + cont_fit, linestyle='-', color='tab:purple', label=fr'Comp 2 (A={amp2}e-18,$\sigma$={sig2})')
+
 
 		ax0.plot(wave_vel_fit-galv.value, spectrum_fit, color='tab:blue', linestyle='-', marker='.', label='Data')
 		ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[0:3]) + cont_fit, linestyle='--', color='tab:purple', label=fr'Comp 1 (A={amp1}e-18,$\sigma$={sig1})')
-		ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[3:6]) + cont_fit, linestyle='-', color='tab:purple', label=fr'Comp 2 (A={amp2}e-18,$\sigma$={sig2})')
 		ax0.plot(wave_vel_fit-galv.value, cont_fit, linestyle='-', color='tab:orange', label='Continuum')
 		ax0.plot(wave_vel_fit-galv.value, cont_fit + gauss_sum(wave_vel_fit, *popt), linestyle='-', color='k', label='Full Fit')
 
@@ -178,7 +184,7 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 	return popt, pcov
 
 
-def compute_flux(popt, pcov, line_wave):
+def compute_flux(popt, pcov, line_wave, ncomp=2):
 	#take fit parameter output and compute flux and error
 
 	width1 = popt[2] * u.km/u.s
@@ -189,7 +195,7 @@ def compute_flux(popt, pcov, line_wave):
 	width1_err = np.sqrt(pcov[2,2]) * u.km/u.s
 	wave_width1_err = ((width1_err / const.c) * line_wave).to(u.angstrom).value
 
-	if len(popt) > 3:
+	if ncomp == 2:
 		width2 = popt[5] * u.km/u.s
 		amp2 = popt[4] #* u.erg/u.s/u.cm**2/u.AA
 		wave_width2 = ((width2 / const.c) * line_wave).to(u.angstrom).value
@@ -245,6 +251,7 @@ def extract_spectrum(ap_shape, ap_dimensions, pix_center=ConnectionPatch):
 	print(f'Aperture radius in pixel: {ap_dimensions_pix}')
 
 	cube_path = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs2.fits'
+	#cube_path = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_dec6_wcs.fits'
 
 	cube_fl = fits.open(cube_path)	
 	cube_data = cube_fl[1].data
@@ -293,12 +300,22 @@ def fit_spectrum(spectrum, line_dict, savename):
 		fit_ind1 = np.where(spec_kms.spectral_axis > galv-2000* u.km/u.s)
 		fit_ind2 = np.where(spec_kms.spectral_axis < galv+2000* u.km/u.s)
 		fit_ind = np.intersect1d(fit_ind1, fit_ind2)
+
+		if line_name == 'Brgamma':
+			tell_ind_range = [795,805]
+			mask_start = tell_ind_range[0] - fit_ind[0]
+
+			fit_ind = np.concatenate((fit_ind[0:mask_start], fit_ind[mask_start+10:-1]))
+
+		print(fit_ind)
+
+
 		fit_spec = spec_kms[fit_ind]
 		fit_spec_vel = spec_kms.spectral_axis[fit_ind].value
 
-		cont_fit, cont_std, cont_serr, mask_ind = fit_continuum(fit_spec, fit_spec_vel, line_name, degree=1, mask_ind=None)
+		cont_params, cont_std, cont_serr, mask_ind = fit_continuum(fit_spec, fit_spec_vel, line_name, degree=1, mask_ind=None)
+		#cont_fit = fit_spec_vel * cont_params[1] + cont_params[0]
 		cont_std_err = np.repeat(cont_std, len(fit_spec))
-
 
 		fit_ind3 = np.where(spec_kms.spectral_axis > galv-1000* u.km/u.s)
 		fit_ind4 = np.where(spec_kms.spectral_axis < galv+1000* u.km/u.s)
@@ -311,15 +328,22 @@ def fit_spectrum(spectrum, line_dict, savename):
 
 		if np.abs(peak_vel - galv.value) > 500:
 			peak_vel = galv.value
+
 		start = [peak_vel, peak_flux, 200, peak_vel, peak_flux*0.25, 400]
-
 		bounds = ([galv.value - 500, peak_flux * 0.01, 20, galv.value - 500, 0, 50], [galv.value + 500, peak_flux*3, 600, galv.value + 500, peak_flux*10, 600])
+		ncomp = 2
 
-		popt, pcov = fit_line(fit_spec, fit_spec_vel, cont_std_err, cont_fit, line_name, start, bounds, (0,0), savename, plot=True, mask_ind=mask_ind)
+		if line_name == 'Brgamma':
+			start = start[0:3]
+			bounds = (bounds[0][0:3], bounds[1][0:3])
+			ncomp = 1
+			
+
+		popt, pcov = fit_line(fit_spec, fit_spec_vel, cont_std_err, cont_params, line_name, start, bounds, (0,0), savename, ncomp=ncomp, plot=True, mask_ind=mask_ind)
 
 		fit_spec_wave = spectrum.spectral_axis[fit_ind].to(u.Angstrom)
 
-		return_dict[line_name] = [popt, pcov, cont_fit]
+		return_dict[line_name] = [popt, pcov, cont_params]
 
 	return return_dict
 
@@ -357,7 +381,7 @@ def spectrum_figure(spectrum, fit_dict, savename):
 		line_wave = line_dict[line_name]
 		fit_returns = fit_dict[line_name]
 		fit_params = fit_returns[0]
-		cont_fit = fit_returns[2]
+		cont_params = fit_returns[2]
 
 		ax.set_title(line_name_list_full[i])
 
@@ -369,12 +393,20 @@ def spectrum_figure(spectrum, fit_dict, savename):
 		fit_spec = spec_kms[fit_ind]
 		fit_spec_vel = spec_kms.spectral_axis[fit_ind].value
 
+		if line_name == 'Brgamma':
+			tell_ind_range = [795,805]
+			mask_start = tell_ind_range[0] - fit_ind[0]
+
+			ax.axvspan(fit_spec_vel[mask_start]-galv.value, fit_spec_vel[mask_start+10]-galv.value, color='k', alpha=0.2)
+
 		ax.plot(fit_spec_vel - galv.value, fit_spec*1e16)
 
+		cont_fit = fit_spec_vel * cont_params[1] + cont_params[0]
 		contsub_spec = fit_spec - cont_fit
 
 		ax.plot(fit_spec_vel-galv.value, (gauss_sum(fit_spec_vel, *fit_params[0:3]) + cont_fit)*1e16, linestyle='--', color='tab:purple')
-		ax.plot(fit_spec_vel-galv.value, (gauss_sum(fit_spec_vel, *fit_params[3:6]) + cont_fit)*1e16, linestyle='-', color='tab:purple')
+		if line_name != 'Brgamma':
+			ax.plot(fit_spec_vel-galv.value, (gauss_sum(fit_spec_vel, *fit_params[3:6]) + cont_fit)*1e16, linestyle='-', color='tab:purple')
 		ax.plot(fit_spec_vel-galv.value, cont_fit*1e16, linestyle='-', color='tab:orange')
 		ax.plot(fit_spec_vel-galv.value, (cont_fit + gauss_sum(fit_spec_vel, *fit_params))*1e16, linestyle='-', color='k')
 
@@ -398,7 +430,7 @@ def spectrum_figure(spectrum, fit_dict, savename):
 		obs_wave = line_wave * (1+z)
 		ax0.axvspan(obs_wave-5e-3, obs_wave+5e-3, color=color_list[i], alpha=0.2)
 
-	plt.savefig(f'plots/NIFS_{savename}_spec_noarr.png', dpi=300, bbox_inches='tight')
+	#plt.savefig(f'plots/NIFS_{savename}_spec_noarr.png', dpi=300, bbox_inches='tight')
 
 	#xy_1 = [2.048, 18]
 	#xy_1 = [2.048, 28]
@@ -456,34 +488,6 @@ def spectrum_figure(spectrum, fit_dict, savename):
 	fig.add_artist(arrow8)
 
 	plt.savefig(f'plots/NIFS_{savename}_spec.png', dpi=300, bbox_inches='tight')
-
-
-def save_fluxes(fit_dict, savename):
-
-	save_tab = Table()
-
-	save_tab['Flux_type'] = ['Total', 'Comp1', 'Comp2']
-
-	for i, line_name in enumerate(fit_dict.keys()):
-
-		line_wave = line_dict[line_name]
-
-		fit_returns = fit_dict[line_name]
-		fit_params = fit_returns[0]
-		fit_cov = fit_returns[1]
-		cont_fit = fit_returns[2]
-
-		obs_wave = line_wave * (1+z) * u.micron
-		total_flux, total_flux_err = compute_flux(fit_params, fit_cov, obs_wave)
-
-		comp1_flux, comp1_flux_err = compute_flux(fit_params[0:3], fit_cov[0:3], obs_wave)
-		comp2_flux, comp2_flux_err = compute_flux(fit_params[3:6], fit_cov[3:6], obs_wave)
-
-		save_tab[f'{line_name}_flux'] = [total_flux, comp1_flux, comp2_flux]
-		save_tab[f'{line_name}_flux_err'] = [total_flux_err, comp1_flux_err, comp2_flux_err]
-
-	save_tab.write(f'/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/{savename}.csv', format='csv', overwrite=True)
-
 
 
 def spectrum_figure_multispec(spectrum_list, fit_dict_list, savename):
@@ -618,7 +622,44 @@ def spectrum_figure_multispec(spectrum_list, fit_dict_list, savename):
 	plt.savefig(f'plots/NIFS_{savename}_spec.png', dpi=300, bbox_inches='tight')
 
 
+
 def save_fluxes(fit_dict, savename):
+
+	save_tab = Table()
+
+	save_tab['Flux_type'] = ['Total', 'Comp1', 'Comp2']
+
+	for i, line_name in enumerate(fit_dict.keys()):
+		line_wave = line_dict[line_name]
+
+		fit_returns = fit_dict[line_name]
+		fit_params = fit_returns[0]
+		fit_cov = fit_returns[1]
+		cont_params = fit_returns[2]
+
+		ncomp = 2
+		if line_name == 'Brgamma':
+			ncomp = 1
+
+		obs_wave = line_wave * (1+z) * u.micron
+		total_flux, total_flux_err = compute_flux(fit_params, fit_cov, obs_wave, ncomp=ncomp)
+
+		comp1_flux, comp1_flux_err = compute_flux(fit_params[0:3], fit_cov[0:3], obs_wave, ncomp=1)
+
+		if ncomp == 2:
+			comp2_flux, comp2_flux_err = compute_flux(fit_params[3:6], fit_cov[3:6], obs_wave, ncomp=1)
+
+			save_tab[f'{line_name}_flux'] = [total_flux, comp1_flux, comp2_flux]
+			save_tab[f'{line_name}_flux_err'] = [total_flux_err, comp1_flux_err, comp2_flux_err]
+
+		else: 
+			save_tab[f'{line_name}_flux'] = [total_flux, comp1_flux, np.nan]
+			save_tab[f'{line_name}_flux_err'] = [total_flux_err, comp1_flux_err, np.nan]
+
+	save_tab.write(f'/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/{savename}.csv', format='csv', overwrite=True)
+
+
+'''def save_fluxes(fit_dict, savename):
 
 	save_tab = Table()
 
@@ -643,6 +684,8 @@ def save_fluxes(fit_dict, savename):
 		save_tab[f'{line_name}_flux_err'] = [total_flux_err, comp1_flux_err, comp2_flux_err]
 
 	save_tab.write(f'/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/{savename}.csv', format='csv', overwrite=True)
+'''
+
 
 
 z = 0.007214
@@ -654,11 +697,11 @@ line_dict = {'H2(1-0)S(2)':2.0332, 'H2(2-1)S(3)':2.0735, 'H2(1-0)S(1)':2.1213, '
 #spectrum_figure(spec, fit_dict, 'annulus_300pc')
 #save_fluxes(fit_dict, 'NIFS_ann_300pc_fluxes')
 
-#pixcent=None
-#spec = extract_spectrum('circle', [50]*u.pc, pixcent)
-#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_cent')
-#spectrum_figure(spec, fit_dict, 'circ_50pc_cent')
-#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent')
+pixcent=None
+spec = extract_spectrum('circle', [50]*u.pc, pixcent)
+fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_cent_mask')
+spectrum_figure(spec, fit_dict, 'circ_50pc_cent_mask')
+save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent_mask')
 
 #pixcent=[22,42]
 #spec = extract_spectrum('circle', [50]*u.pc, pixcent)
@@ -672,10 +715,10 @@ line_dict = {'H2(1-0)S(2)':2.0332, 'H2(2-1)S(3)':2.0735, 'H2(1-0)S(1)':2.1213, '
 #spectrum_figure(spec, fit_dict, 'circ_50pc_x62y22')
 #save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x62y22')
 
-pixcent=[52,66]
-spec = extract_spectrum('circle', [50]*u.pc, pixcent)
-fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x52y66_bg')
-spectrum_figure(spec, fit_dict, 'circ_50pc_x52y66_bg')
+#pixcent=[52,66]
+#spec = extract_spectrum('circle', [50]*u.pc, pixcent)
+#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x52y66_bg')
+#spectrum_figure(spec, fit_dict, 'circ_50pc_x52y66_bg')
 
 
 
