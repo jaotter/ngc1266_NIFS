@@ -98,6 +98,7 @@ def fit_continuum(spectrum, line_vel, line_name, degree=1, mask_ind=None):
 
 	if line_name == 'Brgamma':
 		lower_band_kms = [-1000, -500]
+		upper_band_kms = [700,1500]
 
 	if line_name == 'H2(1-0)S(0)':
 		lower_band_kms = [-1700, -1200]
@@ -167,11 +168,16 @@ def fit_continuum(spectrum, line_vel, line_name, degree=1, mask_ind=None):
 		cont_fit, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, line_vel, line_name, degree=degree, mask_ind=full_ind)
 
 
-	return cont_fit, residuals_clip_std, cont_serr, mask_ind
+	return cont_params, residuals_clip_std, cont_serr, mask_ind
 
 
-def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, start, bounds, xy_loc, runID, plot=False, mask_ind=None):
+def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_params, line_name, start, bounds, xy_loc, runID, ncomp=2, plot=False, mask_ind=None):
 	## function to fit line to continuum-subtracted spectrum, with start values, bounds, and varying number of gaussian components
+
+	if len(cont_params) == 1:
+		cont_fit = cont_params[0] + wave_vel_fit * 0
+	if len(cont_params) == 2:
+		cont_fit = wave_vel_fit * cont_params[1] + cont_params[0]
 
 	contsub_spec = spectrum_fit - cont_fit
 	#spectrum_err_fit = None
@@ -190,18 +196,21 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 		ax1 = fig.add_subplot(gs[1,0], sharex=ax0)
 
 		amp1 = np.round(popt[1])
-		amp2 = np.round(popt[4])
 		sig1 = int(np.round(popt[2]))
-		sig2 = int(np.round(popt[5]))
+
+		if ncomp == 2:
+			amp2 = np.round(popt[4])
+			sig2 = int(np.round(popt[5]))
+			ax0.plot(wave_vel_fit-galv.value, gauss_sum(wave_vel_fit, *popt[3:6]) + cont_fit, linestyle='-', color='tab:purple', label=fr'Comp 2 (A={amp2}e-18,$\sigma$={sig2})')
+
 
 		ax0.plot(wave_vel_fit, spectrum_fit, color='tab:blue', linestyle='-', marker='.', label='Data')
 		ax0.plot(wave_vel_fit, gauss_sum(wave_vel_fit, *popt[0:3]) + cont_fit, linestyle='--', color='tab:purple', label=fr'Comp 1 (A={amp1}e-18,$\sigma$={sig1})')
-		ax0.plot(wave_vel_fit, gauss_sum(wave_vel_fit, *popt[3:6]) + cont_fit, linestyle='-', color='tab:purple', label=fr'Comp 2 (A={amp2}e-18,$\sigma$={sig2})')
 		ax0.plot(wave_vel_fit, cont_fit, linestyle='-', color='tab:orange', label='Continuum')
 		ax0.plot(wave_vel_fit, cont_fit + gauss_sum(wave_vel_fit, *popt), linestyle='-', color='k', label='Full Fit')
 
-		if mask_ind is not None:
-			ax0.plot(wave_vel_fit[mask_ind], spectrum_fit[mask_ind], color='tab:red', linestyle='-', marker='x')
+		#if mask_ind is not None:
+		#	ax0.plot(wave_vel_fit[mask_ind], spectrum_fit[mask_ind], color='tab:red', linestyle='-', marker='x')
 
 		#ax0.text(0, 1.1, start, transform=ax0.transAxes)
 
@@ -237,7 +246,7 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_fit, line_name, 
 	return popt, pcov
 
 
-def compute_flux(popt, pcov, line_wave):
+def compute_flux(popt, pcov, line_wave, ncomp=2):
 	#take fit parameter output and compute flux and error
 
 	width1 = popt[2] * u.km/u.s
@@ -248,7 +257,7 @@ def compute_flux(popt, pcov, line_wave):
 	width1_err = np.sqrt(pcov[2,2]) * u.km/u.s
 	wave_width1_err = ((width1_err / const.c) * line_wave).to(u.angstrom).value
 
-	if len(popt) > 3:
+	if ncomp == 2:
 		width2 = popt[5] * u.km/u.s
 		amp2 = popt[4] #* u.erg/u.s/u.cm**2/u.AA
 		wave_width2 = ((width2 / const.c) * line_wave).to(u.angstrom).value
@@ -395,17 +404,15 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 			bounds = ([prev_fit_params[0]-400, peak_flux*0.1, width_lower_1, comp2_start-600, peak_flux*0.01, width_lower_2],
 				[prev_fit_params[0]+400, peak_flux*2, width_upper_1, comp2_start+600, peak_flux*2, width_upper_2])
 
-			print(start)
-			print(bounds)
-			
-
-
 		#line_spec_err[line_spec_err == 0] = np.nanmedian(line_spec_err)
 
-		cont_fit, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=1, mask_ind=None)
+		cont_params, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=1, mask_ind=None)
 		cont_std_err = np.repeat(cont_std, line_spec.shape)
 
-		popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind)
+		ncomp = 2
+
+		popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_params, line_name, start, bounds, (x_loc[0],y_loc[0]), 
+								runID, plot=plot_bool, mask_ind=mask_ind, ncomp=ncomp)
 
 		#total_flux = np.sum(gauss_sum(line_vel.value, *popt))
 
@@ -423,7 +430,8 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 			start = [peak_vel, peak_flux, 100, peak_vel, peak_flux*0.25, 200]
 			bounds = ([-700, peak_flux * 0.1, 20, -700, 0, 50], [700, peak_flux*10, 600, 700, peak_flux*10, 400])
 
-			popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=True, mask_ind=mask_ind)
+			popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_params, line_name, start, bounds, (x_loc[0],y_loc[0]), 
+									runID, plot=True, mask_ind=mask_ind, ncomp=ncomp)
 
 			total_flux, total_flux_err = compute_flux(popt, pcov, line_wave)
 
@@ -491,7 +499,14 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 					continue
 
 			#perform linear continuum subtraction
-			cont_fit, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=cont_degree, mask_ind=None)
+			cont_params, cont_std, cont_serr, mask_ind = fit_continuum(line_spec, line_vel.value, line_name, degree=cont_degree, mask_ind=None)
+
+			if cont_degree == 0:
+				cont_fit = cont_params[0] + line_vel.value * 0
+			if cont_degree == 1:
+				cont_fit = line_vel.value * cont_params[1] + cont_params[0]
+
+
 			cont_std_err = np.repeat(cont_std, line_spec.shape)
 
 			contsub_spec = line_spec - cont_fit
@@ -539,8 +554,22 @@ def fit_cube(runID, cube_path='/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data
 
 			#bounds = ([peak_vel - 500, peak_flux * 0.1, 20, peak_vel - 500, 0, 50], [line_vel[-1].value, peak_flux*10, 600, line_vel[-1].value, peak_flux*10, 600])
 
-			popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_fit, line_name, start, bounds, (x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind)
-			total_flux, total_flux_err = compute_flux(popt, pcov, line_wave)
+			if line_name == 'Brgamma':
+				start = start[0:3]
+				bounds = (bounds[0][0:3], bounds[1][0:3])
+				ncomp = 1
+
+				tell_ind_range = [795,805]
+				mask_start = tell_ind_range[0] - fit_ind[0]
+				fit_ind = np.concatenate((fit_ind[0:mask_start], fit_ind[mask_start+10:-1]))
+
+				line_spec = spectrum[fit_ind].squeeze().value
+				line_vel = wave_vel[fit_ind].squeeze()
+				cont_std_err = np.repeat(cont_std, line_spec.shape)
+
+			popt, pcov = fit_line(line_spec, line_vel.value, cont_std_err, cont_params, line_name, start, bounds, 
+									(x_loc[0],y_loc[0]), runID, plot=plot_bool, mask_ind=mask_ind, ncomp=ncomp)
+			total_flux, total_flux_err = compute_flux(popt, pcov, line_wave, ncomp=ncomp)
 
 			if total_flux >= total_flux_err * 3:#if 3-sigma detection
 				save_dict[f'{line_name}_flux'].append(total_flux)
@@ -574,8 +603,8 @@ def csv_to_maps(csv_path, save_name):
 	fit_tab = Table.read(csv_path, format='csv')
 
 
-	#cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs.fits'
-	cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/reduced_cubes/man_offset2/20141110_obs49_merged_wcs_trim.fits'
+	cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs2.fits'
+	#cube_file = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/reduced_cubes/man_offset2/20141110_obs49_merged_wcs_trim.fits'
 	cube_fl = fits.open(cube_file)
 	cube_header = cube_fl[1].header
 	cube_wcs = WCS(cube_header).celestial

@@ -46,6 +46,7 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 
 	if line_name == 'Brgamma':
 		lower_band_kms = [-1000, -500]
+		upper_band_kms = [700,1500]
 
 	if line_name == 'H2(1-0)S(0)':
 		lower_band_kms = [-1850, -1200]
@@ -228,27 +229,10 @@ def gauss_sum(velocity, *params):
 	return y
 
 
-def extract_spectrum(ap_shape, ap_dimensions, pix_center=ConnectionPatch):
-	#ap_shape - either "circle" or "annulus"
+def extract_spectrum(ap_shape, ap_dimensions=None, pix_center=ConnectionPatch):
+	#ap_shape - either "circle" or "annulus", or "fov" for entire fov minus edges
 	#ap_dimensions - [radius] for circle, [inner radius, outer radius] for annulus in length, angular, or dimensionless (pixel) units
 	#pix_center - center of aperture in pixel coordinates, if None use galaxy center
-
-	#convert dimensions from kpc to arcsec
-	z = 0.007214
-	D_L = cosmo.luminosity_distance(z).to(u.Mpc)
-	as_per_kpc = cosmo.arcsec_per_kpc_comoving(z)
-
-	if u.get_physical_type(ap_dimensions.unit) == 'length':
-		ap_dimensions_as = (ap_dimensions * as_per_kpc).decompose()
-		ap_dimensions_pix = (ap_dimensions_as / (0.043*u.arcsecond)).decompose().value
-	elif u.get_physical_type(ap_dimensions.unit) == 'angle':
-		ap_dimensions_as = ap_dimensions.to(u.arcsecond)
-		ap_dimensions_pix = (ap_dimensions_as / (0.043*u.arcsecond)).decompose().value
-	elif u.get_physical_type(ap_dimensions.unit) == 'dimensionless': #assume pixel units
-		ap_dimensions_as = (ap_dimensions * as_per_kpc).decompose()
-		ap_dimensions_pix = ap_dimensions.value
-
-	print(f'Aperture radius in pixel: {ap_dimensions_pix}')
 
 	cube_path = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs2.fits'
 	#cube_path = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_dec6_wcs.fits'
@@ -262,29 +246,52 @@ def extract_spectrum(ap_shape, ap_dimensions, pix_center=ConnectionPatch):
 
 	cube_shape = cube_data.shape
 
-	if pix_center == None:
-		gal_cen = SkyCoord(ra='3:16:00.74576', dec='-2:25:38.70151', unit=(u.hourangle, u.degree),
-		                  frame='icrs') #from HST H band image, by eye
+	if ap_shape == 'fov':
+		trunc_cube = cube[1:cube_shape[0]-1, 1:cube_shape[1]]
+		fov_spectrum = trunc_cube.sum(axis=(1,2))
 
-		center_pix = nifs_wcs.celestial.all_world2pix(gal_cen.ra, gal_cen.dec, 0)
-
-		center_pixcoord = PixCoord(center_pix[0], center_pix[1])
+		return fov_spectrum
 
 	else:
-		center_pixcoord = PixCoord(pix_center[0], pix_center[1])
+		#convert dimensions from kpc to arcsec
+		z = 0.007214
+		D_L = cosmo.luminosity_distance(z).to(u.Mpc)
+		as_per_kpc = cosmo.arcsec_per_kpc_comoving(z)
 
+		if u.get_physical_type(ap_dimensions.unit) == 'length':
+			ap_dimensions_as = (ap_dimensions * as_per_kpc).decompose()
+			ap_dimensions_pix = (ap_dimensions_as / (0.043*u.arcsecond)).decompose().value
+		elif u.get_physical_type(ap_dimensions.unit) == 'angle':
+			ap_dimensions_as = ap_dimensions.to(u.arcsecond)
+			ap_dimensions_pix = (ap_dimensions_as / (0.043*u.arcsecond)).decompose().value
+		elif u.get_physical_type(ap_dimensions.unit) == 'dimensionless': #assume pixel units
+			ap_dimensions_as = (ap_dimensions * as_per_kpc).decompose()
+			ap_dimensions_pix = ap_dimensions.value
 
-	if ap_shape == 'circle':
-		ap = CirclePixelRegion(center=center_pixcoord, radius=ap_dimensions_pix[0])
+		print(f'Aperture radius in pixel: {ap_dimensions_pix}')
 
-	elif ap_shape == 'annulus':
-		ap = CircleAnnulusPixelRegion(center=center_pixcoord, inner_radius=ap_dimensions_pix[0], outer_radius=ap_dimensions_pix[1])
+		if pix_center == None:
+			gal_cen = SkyCoord(ra='3:16:00.74576', dec='-2:25:38.70151', unit=(u.hourangle, u.degree),
+			                  frame='icrs') #from HST H band image, by eye
 
-	mask_cube = cube.subcube_from_regions([ap])
+			center_pix = nifs_wcs.celestial.all_world2pix(gal_cen.ra, gal_cen.dec, 0)
 
-	spectrum = mask_cube.sum(axis=(1,2))
+			center_pixcoord = PixCoord(center_pix[0], center_pix[1])
 
-	return spectrum
+		else:
+			center_pixcoord = PixCoord(pix_center[0], pix_center[1])
+
+		if ap_shape == 'circle':
+			ap = CirclePixelRegion(center=center_pixcoord, radius=ap_dimensions_pix[0])
+
+		elif ap_shape == 'annulus':
+			ap = CircleAnnulusPixelRegion(center=center_pixcoord, inner_radius=ap_dimensions_pix[0], outer_radius=ap_dimensions_pix[1])
+
+		mask_cube = cube.subcube_from_regions([ap])
+
+		spectrum = mask_cube.sum(axis=(1,2))
+
+		return spectrum
 
 
 def fit_spectrum(spectrum, line_dict, savename):
@@ -306,8 +313,6 @@ def fit_spectrum(spectrum, line_dict, savename):
 			mask_start = tell_ind_range[0] - fit_ind[0]
 
 			fit_ind = np.concatenate((fit_ind[0:mask_start], fit_ind[mask_start+10:-1]))
-
-		print(fit_ind)
 
 
 		fit_spec = spec_kms[fit_ind]
@@ -487,7 +492,7 @@ def spectrum_figure(spectrum, fit_dict, savename):
 	arrow8 = ConnectionPatch(xyA=xy_8, coordsA=ax0.transAxes, xyB=xy_ax8, coordsB=ax8.transAxes, arrowstyle='-|>', fc=color_list[7])
 	fig.add_artist(arrow8)
 
-	plt.savefig(f'plots/NIFS_{savename}_spec.png', dpi=300, bbox_inches='tight')
+	plt.savefig(f'plots/NIFS_{savename}_spec.pdf', dpi=300, bbox_inches='tight')
 
 
 def spectrum_figure_multispec(spectrum_list, fit_dict_list, savename):
@@ -619,7 +624,7 @@ def spectrum_figure_multispec(spectrum_list, fit_dict_list, savename):
 	arrow8 = ConnectionPatch(xyA=xy_8, coordsA=ax0.transAxes, xyB=xy_ax8, coordsB=ax8.transAxes, arrowstyle='-|>', fc=color_list[7])
 	fig.add_artist(arrow8)
 
-	plt.savefig(f'plots/NIFS_{savename}_spec.png', dpi=300, bbox_inches='tight')
+	plt.savefig(f'plots/NIFS_{savename}_spec.pdf', dpi=300, bbox_inches='tight')
 
 
 
@@ -697,23 +702,28 @@ line_dict = {'H2(1-0)S(2)':2.0332, 'H2(2-1)S(3)':2.0735, 'H2(1-0)S(1)':2.1213, '
 #spectrum_figure(spec, fit_dict, 'annulus_300pc')
 #save_fluxes(fit_dict, 'NIFS_ann_300pc_fluxes')
 
-pixcent=None
-spec = extract_spectrum('circle', [50]*u.pc, pixcent)
-fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_cent_mask')
-spectrum_figure(spec, fit_dict, 'circ_50pc_cent_mask')
-save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent_mask')
+#pixcent=None
+#spec = extract_spectrum('circle', [50]*u.pc, pixcent)
+#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_cent_mask')
+#spectrum_figure(spec, fit_dict, 'circ_50pc_cent_mask')
+#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent_mask')
+
+fov_spec = extract_spectrum('fov', None, None)
+fit_dict = fit_spectrum(fov_spec, line_dict, 'fov_spectrum')
+spectrum_figure(fov_spec, fit_dict, 'fov_spectrum')
+save_fluxes(fit_dict, 'NIFS_fov_spectrum_fluxes')
 
 #pixcent=[22,42]
 #spec = extract_spectrum('circle', [50]*u.pc, pixcent)
-#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x22y42')
-#spectrum_figure(spec, fit_dict, 'circ_50pc_x22y42')
-#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x22y42')
+#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x22y42_mask')
+#spectrum_figure(spec, fit_dict, 'circ_50pc_x22y42_mask')
+#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x22y42_mask')
 
 #pixcent=[62,22]
 #spec = extract_spectrum('circle', [50]*u.pc, pixcent)
-#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x62y22')
-#spectrum_figure(spec, fit_dict, 'circ_50pc_x62y22')
-#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x62y22')
+#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x62y22_mask')
+#spectrum_figure(spec, fit_dict, 'circ_50pc_x62y22_mask')
+#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_x62y22_mask')
 
 #pixcent=[52,66]
 #spec = extract_spectrum('circle', [50]*u.pc, pixcent)
