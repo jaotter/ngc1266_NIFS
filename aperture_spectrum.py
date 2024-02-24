@@ -32,13 +32,18 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 
 	line_vel = wave_vel - galv.value
 
+	lower_band_kms = [-2000,-1000]
+	upper_band_kms = [1000,1800]
+
 	#chosen by hand for H2_212
-	lower_band_kms = [-1700,-1000]
-	upper_band_kms = [1000,1700]
+	if line_name == 'H2(1-0)S(1)':
+		lower_band_kms = [-2000,-1000]
+		upper_band_kms = [1000,1800]
 
 	if line_name == 'H2(1-0)S(2)':
 		lower_band_kms = [-1900, -1100]
-		upper_band_kms = [700, 1100]
+		upper_band_kms = [700, 1700]
+		upper_exclude = [1100,1400]
 
 	if line_name == 'H2(2-1)S(2)':
 		lower_band_kms = [-2000, -1400]
@@ -90,11 +95,23 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 	#cont_params is [intercept, slope] with velocity as unit
 
 	if degree == 1:
-		cont_fit = wave_vel * cont_params[1] + cont_params[0]
+		cont_fit = wave_vel * cont_params[0] + cont_params[1]
+	if degree == 2:
+		cont_fit = (wave_vel**2) * cont_params[2] + wave_vel * cont_params[1] + cont_params[0]
+	if degree == 3:
+		cont_fit = (wave_vel**3) * cont_params[0] + (wave_vel**2) * cont_params[1] + wave_vel * cont_params[2] + cont_params[3]
 
 	spectrum_contsub = spectrum - cont_fit
 
 	fit_residuals = fit_spec - (fit_wave * cont_params[1] + cont_params[0])
+
+	if degree == 1:
+		fit_residuals = fit_spec - (fit_wave * cont_params[0] + cont_params[1])
+	if degree == 2:
+		fit_residuals = fit_spec - ((fit_wave**2) * cont_params[2] + fit_wave * cont_params[1] + cont_params[0])
+	if degree == 3:
+		fit_residuals = fit_spec - ((fit_wave**3) * cont_params[3] + (fit_wave**2) * cont_params[2] + fit_wave * cont_params[1] + cont_params[0])
+
 	residuals_std = np.nanstd(fit_residuals)
 
 	sclip_keep_ind = np.where(fit_residuals < 3*residuals_std)[0]
@@ -111,7 +128,7 @@ def fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=None):
 		upper_full_ind = upper_ind[upper_outlier_ind]
 		full_ind = np.concatenate((lower_full_ind, upper_full_ind))
 
-		cont_params, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, wave_vel, line_name, degree=1, mask_ind=full_ind)
+		cont_params, residuals_clip_std, cont_serr, mask_ind = fit_continuum(spectrum, wave_vel, line_name, degree=degree, mask_ind=full_ind)
 
 
 	return cont_params, residuals_clip_std, cont_serr, mask_ind
@@ -121,6 +138,10 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_params, line_nam
 	## function to fit line to continuum-subtracted spectrum, with start values, bounds, and varying number of gaussian components
 
 	cont_fit = wave_vel_fit * cont_params[1] + cont_params[0]
+	if len(cont_params) == 4:
+		cont_fit = (wave_vel_fit**3) * cont_params[3] + (wave_vel_fit**2) * cont_params[2] + wave_vel_fit * cont_params[1] + cont_params[0]
+
+
 	contsub_spec = spectrum_fit - (cont_fit)
 	#spectrum_err_fit = None
 
@@ -162,6 +183,7 @@ def fit_line(spectrum_fit, wave_vel_fit, spectrum_err_fit, cont_params, line_nam
 
 		ax0.legend()
 
+		ax0.grid()
 		#ax0.text()
 
 		residuals = spectrum_fit - gauss_sum(wave_vel_fit, *popt) - cont_fit
@@ -299,7 +321,7 @@ def extract_spectrum(ap_shape, ap_dimensions=None, pix_center=ConnectionPatch):
 		return spectrum
 
 
-def fit_spectrum(spectrum, line_dict, savename):
+def fit_spectrum(spectrum, line_dict, savename, cont_deg=1):
 	#given aperture spectrum and list of lines, fit each one, return dictionary with fit parameters for each
 
 	return_dict = {}
@@ -331,7 +353,7 @@ def fit_spectrum(spectrum, line_dict, savename):
 		fit_spec = spec_kms[fit_ind]
 		fit_spec_vel = spec_kms.spectral_axis[fit_ind].value
 
-		cont_params, cont_std, cont_serr, mask_ind = fit_continuum(fit_spec, fit_spec_vel, line_name, degree=1, mask_ind=None)
+		cont_params, cont_std, cont_serr, mask_ind = fit_continuum(fit_spec, fit_spec_vel, line_name, degree=cont_deg, mask_ind=None)
 		#cont_fit = fit_spec_vel * cont_params[1] + cont_params[0]
 		cont_std_err = np.repeat(cont_std, len(fit_spec))
 
@@ -432,6 +454,9 @@ def spectrum_figure(spectrum, fit_dict, savename, ap_name='center'):
 		ax.plot(fit_spec_vel - galv.value, fit_spec*1e16)
 
 		cont_fit = fit_spec_vel * cont_params[1] + cont_params[0]
+		if len(cont_params) == 4:
+			cont_fit = (fit_spec_vel**3) * cont_params[3] + (fit_spec_vel**2) * cont_params[2] + fit_spec_vel * cont_params[1] + cont_params[0]
+
 		contsub_spec = fit_spec - cont_fit
 
 		ax.plot(fit_spec_vel-galv.value, (gauss_sum(fit_spec_vel, *fit_params[0:3]) + cont_fit)*1e16, linestyle='--', color='tab:purple')
@@ -620,11 +645,11 @@ galv = np.log(z+1)*const.c.to(u.km/u.s)
 line_dict = {'H2(1-0)S(2)':2.0332, 'He I':2.0587, 'H2(2-1)S(3)':2.0735, 'H2(1-0)S(1)':2.1213, 'H2(2-1)S(2)':2.1542, 'Brgamma':2.1654, 'H2(1-0)S(0)':2.2230, 'H2(2-1)S(1)':2.2470, 'H2(1-0)Q(1)':2.4066}
 
 
-pixcent=None
-spec = extract_spectrum('circle', [50]*u.pc, pixcent)
-fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_cent_mask')
-spectrum_figure(spec, fit_dict, 'circ_50pc_cent_mask')
-save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent_mask')
+#pixcent=None
+#spec = extract_spectrum('circle', [50]*u.pc, pixcent)
+#fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_cent_mask_n3cont', cont_deg=3)
+#spectrum_figure(spec, fit_dict, 'circ_50pc_cent_mask_n3cont')
+#save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent_mask_n3cont')
 
 #fov_spec = extract_spectrum('fov', None, None)
 #fit_dict = fit_spectrum(fov_spec, line_dict, 'fov_spectrum')
@@ -649,5 +674,9 @@ save_fluxes(fit_dict, 'NIFS_50pc_fluxes_cent_mask')
 #fit_dict = fit_spectrum(spec, line_dict, 'circ_50pc_x52y66_bg')
 #spectrum_figure(spec, fit_dict, 'circ_50pc_x52y66_bg')
 
+pixcent=[71,43]
+spec = extract_spectrum('circle', [50]*u.pc, pixcent)
+fit_dict = fit_spectrum(spec, line_dict, 'x71y43_50pc')
+spectrum_figure(spec, fit_dict, 'x71y43_50pc')
 
 

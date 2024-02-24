@@ -34,10 +34,15 @@ for line_name in line_dict.keys():
 		flux = tab_row[line_name+'_flux'] * 1e16
 		flux_err = tab_row[line_name+'_flux_err'] * 1e16
 
-		rnd_num = rnd_num_list[i]
-		flux_err_rnd = np.round(flux_err, rnd_num)
-		flux_rnd = np.round(flux, rnd_num)
-		flux_str = f'{flux_rnd}$\pm${flux_err_rnd}'
+		if flux_err * 3 > flux:
+			upper_lim_rnd = np.round(flux_err * 3, rnd_num)
+			flux_str = f'<{upper_lim_rnd}'
+
+		else:
+			rnd_num = rnd_num_list[i]
+			flux_err_rnd = np.round(flux_err, rnd_num)
+			flux_rnd = np.round(flux, rnd_num)
+			flux_str = f'{flux_rnd} $\pm$ {flux_err_rnd}'
 
 		col_list = flux_cols[i]
 		col_list.append(flux_str)
@@ -45,4 +50,4 @@ for line_name in line_dict.keys():
 newtable = Table((name_col, wave_col, cent_col, west_col, east_col, fov_col),
 				names=('Line', 'Wavelength', 'Center Flux', 'West Flux', 'East Flux', 'FOV Flux'))
 
-newtable.write('/Users/jotter/highres_PSBs/ngc1266_NIFS/flux_table_paper.txt', format='latex')
+newtable.write('/Users/jotter/highres_PSBs/ngc1266_NIFS/flux_table_paper.txt', format='latex', overwrite=True)
