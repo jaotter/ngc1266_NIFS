@@ -54,12 +54,20 @@ def load_xsl_temps(data_wave, temp_folder="/Users/jotter/ppxf_files/XSL_DR3_rele
 
 	for tp in temp_paths:
 		temp_fl = fits.open(tp)
-		if tp[-8::] == "scl.fits":
-			temp_spec = temp_fl[1].data['FLUX_SC']
-		else:
-			temp_spec = temp_fl[1].data['FLUX_DR']
+		temp_data = temp_fl[1].data
 
-		temp_wave = ((temp_fl[1].data['WAVE'] * u.nm).to(u.Angstrom)).value
+		if tp[-8::] == "scl.fits":
+			temp_spec = temp_data['FLUX_SC'].copy()
+		else:
+			temp_spec = temp_data['FLUX_DR'].copy()
+
+		temp_wave = ((temp_data['WAVE'].copy() * u.nm).to(u.Angstrom)).value
+
+		del temp_fl[1].data
+		del temp_fl[0].data
+		del temp_data
+
+		temp_fl.close()
 
 		temp_start = temp_wave[0]
 		temp_end = temp_wave[-1]
@@ -73,13 +81,8 @@ def load_xsl_temps(data_wave, temp_folder="/Users/jotter/ppxf_files/XSL_DR3_rele
 	max_start = np.max(temp_starts)
 	min_end = np.min(temp_ends)
 
-	#print(max_start, min_end)
-
 	wave_low_ind = np.searchsorted(data_wave, max_start)
 	wave_high_ind = np.searchsorted(data_wave, min_end)
-
-	#print(data_wave)
-	#print(wave_low_ind, wave_high_ind)
 
 	wave_trunc = data_wave[wave_low_ind:wave_high_ind]
 
@@ -90,15 +93,6 @@ def load_xsl_temps(data_wave, temp_folder="/Users/jotter/ppxf_files/XSL_DR3_rele
 		new_temp = interp_func(wave_trunc)
 		temp_rebin.append(new_temp)
 
-	#testing that the rebinning looks reasonable
-	'''fig = plt.figure()
-				plt.plot(temp_wave_nobin[0], temp_data_nobin[0], label='no rebin')
-				plt.plot(wave_trunc, temp_rebin[0], label='rebinned')
-				plt.xlim(19000, 25000)
-				plt.ylim(0,1e-12)
-				plt.legend()
-				plt.savefig('ppxf_output/plots/template0_test.png')
-			'''
 
 	return np.array(temp_rebin).transpose(), wave_trunc #to be consistent with ppxf MILES loading
 
