@@ -1095,7 +1095,24 @@ def save_fluxes(fit_dict, savename):
 	save_tab.write(f'/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/{savename}.csv', format='csv', overwrite=True)
 
 
-runID = 'Center_50pc'
+
+#runID = 'North_50pc'
+#pixcent=[42,52]
+#spectrum, err, wave_lam  = extract_spectrum('circle', [50]*u.pc, pixcent)
+#fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
+#fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'north_50pc_ppxf')
+#spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'north_50pc_ppxf', ap_name='east')
+#save_fluxes(fit_dict, 'east_50pc_ppxf')
+
+runID = 'Center_125pc'
+spectrum, err, wave_lam = extract_spectrum('circle', [125]*u.pc, None)
+fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
+fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'center_125pc_ppxf')
+#spectrum_figure_He(spec_rebin, cont_spec, wave_rebin, fit_dict, 'center_50pc_ppxf')
+spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'center_50pc_ppxf')
+save_fluxes(fit_dict, 'center_125pc_ppxf')
+
+''''runID = 'Center_50pc'
 spectrum, err, wave_lam = extract_spectrum('circle', [50]*u.pc, None)
 fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
 fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'center_50pc_ppxf')
@@ -1124,6 +1141,6 @@ spectrum, err, wave_lam = extract_spectrum('fov', [50]*u.pc, None)
 fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
 fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'fov_ppxf')
 spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'fov_ppxf')
-save_fluxes(fit_dict, 'fov_ppxf')
+save_fluxes(fit_dict, 'fov_ppxf')'''
 
 
