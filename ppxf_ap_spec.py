@@ -24,8 +24,8 @@ import gc
 
 from ppxf.ppxf import ppxf
 import ppxf.ppxf_util as util
-import ppxf.miles_util as lib
-import ppxf_custom_util_nifs as custom_util
+#import ppxf.miles_util as lib
+#import ppxf_custom_util_nifs as custom_util
 
 from astropy.stats import mad_std, bayesian_info_criterion_lsq
 from scipy.interpolate import interp1d
@@ -656,7 +656,7 @@ def run_stellar_fit(runID, spectrum, err, wave_lam):
 	return run_dict, opt_temps_save, cont_spec, spec_rebin, wave_rebin
 
 
-def spectrum_figure(spectrum, cont_spec, wave_arr, fit_dict, savename, ap_name='center'):
+def spectrum_figure(spectrum, cont_spec, wave_arr, fit_dict, savename, ap_center):
 	fig = plt.figure(figsize=(12,10))
 	gs = GridSpec(5,5, wspace=0.25, hspace=0.75)
 
@@ -821,13 +821,6 @@ def spectrum_figure(spectrum, cont_spec, wave_arr, fit_dict, savename, ap_name='
 
 	ax9.imshow(np.log10(H2_flux_det), cmap='gray', vmin=-17.1, vmax=-16)
 
-	if ap_name == 'center':
-		ap_center = (42,34)
-	if ap_name == 'east':
-		ap_center = (22,42)
-	if ap_name == 'west':
-		ap_center = (64,20)
-
 	ap_radius = 7.78
 	ap_patch = Circle(ap_center, radius=ap_radius, fill=None, edgecolor='red', linewidth=1)
 
@@ -843,6 +836,161 @@ def spectrum_figure(spectrum, cont_spec, wave_arr, fit_dict, savename, ap_name='
 	ax9.add_patch(rect)
 
 	plt.savefig(f'plots/NIFS_{savename}_spec.pdf', dpi=300, bbox_inches='tight')
+
+
+def spectrum_figure_paper(spectrum, cont_spec, wave_arr, fit_dict, savename):
+	fig = plt.figure(figsize=(12,10))
+	gs = GridSpec(5,4, wspace=0.25, hspace=0.75)
+
+	#gs2 = GridSpecFromSubplotSpec(1,4, subplot_spec=gs[4,:], wspace=0.25)
+
+	ax0 = fig.add_subplot(gs[1:4, 0:5])
+
+	wave_arr = (wave_arr * u.Angstrom).to(u.micron)
+
+	ax0.plot(wave_arr, spectrum*1e16, color='tab:blue', label='NIFS spectrum')
+	ax0.plot(wave_arr, cont_spec*1e16, color='tab:orange', label='Stellar continuum')
+
+	ax0.set_xlim(2.005, 2.43)
+	ax0.set_xlabel(r'Observed Wavelength ($\mu$m)', size=12)
+	ax0.tick_params(axis='both', labelsize=12)
+
+	ax0.set_ylabel(r'Flux (10$^{-16}$ erg/s/cm$^2$/$\AA$)', size=14)
+
+	handles = [Line2D([0], [0], label='NIFS spectrum', color='tab:blue'),
+				Line2D([0], [0], label='Stellar continuum', color='tab:orange'),
+				Line2D([0], [0], label='Gaussian fit', color='tab:purple'),
+				Line2D([0], [0], label='Full model', color='k')]
+	ax0.legend(bbox_to_anchor=(0.9,0.95), fontsize=12)
+
+	ax1 = fig.add_subplot(gs[0,0])
+	ax2 = fig.add_subplot(gs[0,1])
+	ax3 = fig.add_subplot(gs[0,2])
+	ax4 = fig.add_subplot(gs[0,3])
+
+	ax5 = fig.add_subplot(gs[4,0])
+	ax6 = fig.add_subplot(gs[4,1])
+	ax7 = fig.add_subplot(gs[4,2])
+	ax8 = fig.add_subplot(gs[4,3])
+
+	line_ax = [ax1, ax5, ax2, ax6, ax3, ax7, ax4, ax8]
+	line_name_list_full = [r'H$_2$(1-0)S(2)', r'H$_2$(2-1)S(3)', r'H$_2$(1-0)S(1)', r'H$_2$(2-1)S(2)', r'Br$\gamma$', r'H$_2$(1-0)S(0)', r'H$_2$(2-1)S(1)', r'H$_2$(1-0)Q(1)']
+	color_list = ['tab:blue', 'tab:purple', 'tab:red', 'tab:orange', 'tab:green', 'tab:pink', 'tab:olive', 'tab:cyan']
+
+	for i, line_name in enumerate(line_dict_noHe):
+
+		ax = line_ax[i]
+		line_wave = line_dict[line_name]
+		fit_returns = fit_dict[line_name]
+		fit_params = fit_returns[0]
+		delta_bic = fit_returns[2]
+
+		ax.set_title(line_name_list_full[i])
+
+
+		wave_to_vel = u.doppler_optical(line_wave*u.micron)
+		wave_vel = wave_arr.to(u.km/u.s, equivalencies=wave_to_vel)
+		#spec_kms = spectrum.with_spectral_unit(u.km/u.s, velocity_convention='optical', rest_value=line_wave*u.micron)
+
+		fit_ind1 = np.where(wave_vel > galv-2500* u.km/u.s)
+		fit_ind2 = np.where(wave_vel < galv+2500* u.km/u.s)
+		fit_ind = np.intersect1d(fit_ind1, fit_ind2)
+		fit_spec = spectrum[fit_ind]
+		fit_vel = wave_vel[fit_ind].value
+		fit_cont = cont_spec[fit_ind]
+
+		if line_name == 'Brgamma':
+			mask_ind = [81,83] #exclude these from fit
+			ax.axvspan(fit_vel[mask_ind[0]]-galv.value, fit_vel[mask_ind[1]]-galv.value, color='k', alpha=0.2)
+
+		ax.plot(fit_vel - galv.value, fit_spec*1e16, color='tab:blue')
+
+		ax.plot(fit_vel-galv.value, (gauss_sum(fit_vel, *fit_params[0:3]) + fit_cont)*1e16, linestyle='--', color='tab:purple')
+
+		if line_name != len(fit_params) > 3:
+			ax.plot(fit_vel-galv.value, (gauss_sum(fit_vel, *fit_params[3:6]) + fit_cont)*1e16, linestyle='-', color='tab:purple')
+
+		ax.plot(fit_vel-galv.value, fit_cont*1e16, linestyle='-', color='tab:orange')
+		ax.plot(fit_vel-galv.value, (fit_cont + gauss_sum(fit_vel, *fit_params))*1e16, linestyle='-', color='k')
+
+		bic_print = int(np.round(delta_bic, 0))
+		ax.text(0.02, 0.87, rf'$\Delta$BIC = {bic_print}', fontsize=10, transform=ax.transAxes)
+
+		ax.set_xlabel('Velocity (km/s)', fontsize=12)
+
+		ax.tick_params(axis='both', labelsize=12)
+
+		if i != 8:
+			ax.set_xlim(-900,900)
+			ax.set_xticks([-500, 0, 500])
+			ax.axvspan(-900,900, color=color_list[i], alpha=0.2)
+
+		else:
+			ax.set_xlim(-900, 500)
+			ax.set_xticks([-500, 0, 500])
+			ax.axvspan(-900,500, color=color_list[i], alpha=0.2)
+
+		obs_wave = line_wave * (1+z)
+		ax0.axvspan(obs_wave-5e-3, obs_wave+5e-3, color=color_list[i], alpha=0.2)
+
+		ax.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:.0f}"))
+
+	#plt.savefig(f'plots/NIFS_{savename}_spec_noarr.png', dpi=300, bbox_inches='tight')
+
+	xy_1 = [0.102, 0.9]
+	xy_ax1 = [0.5, -0.5]
+	arrow1 = ConnectionPatch(xyA=xy_1, coordsA=ax0.transAxes, xyB=xy_ax1, coordsB=ax1.transAxes, arrowstyle='-|>', fc=color_list[0])
+	fig.add_artist(arrow1)
+
+	#xy_2 = [0.2, 0.97]
+	xy_2 = [0.315, 0.97]
+	xy_ax2 = [0.5, -0.5]
+	arrow2 = ConnectionPatch(xyA=xy_2, coordsA=ax0.transAxes, xyB=xy_ax2, coordsB=ax2.transAxes, arrowstyle='-|>', fc=color_list[2])
+	fig.add_artist(arrow2)
+
+	#xy_3 = [0.415, 0.9]
+	xy_3 = [0.415, 0.9]
+	xy_ax3 = [0.5, -0.5]
+	arrow3 = ConnectionPatch(xyA=xy_3, coordsA=ax0.transAxes, xyB=xy_ax3, coordsB=ax3.transAxes, arrowstyle='-|>', fc=color_list[4])
+	fig.add_artist(arrow3)
+
+	#xy_4 = [0.61, 0.9]
+	xy_4 = [0.61, 0.9]
+	xy_ax4 = [0.5, -0.5]
+	arrow4 = ConnectionPatch(xyA=xy_4, coordsA=ax0.transAxes, xyB=xy_ax4, coordsB=ax4.transAxes, arrowstyle='-|>', fc=color_list[6])
+	fig.add_artist(arrow4)
+
+	#xy_5 = [0.2, 0.1]
+	xy_5 = [0.2, 0.1]
+	xy_ax5 = [0.5, 1.3]
+	arrow5 = ConnectionPatch(xyA=xy_5, coordsA=ax0.transAxes, xyB=xy_ax5, coordsB=ax5.transAxes, arrowstyle='-|>', fc=color_list[1])
+	fig.add_artist(arrow5)
+
+	#xy_6 = [0.39, 0.1]
+	xy_6 = [0.39, 0.1]
+	xy_ax6 = [0.5, 1.3]
+	arrow6 = ConnectionPatch(xyA=xy_6, coordsA=ax0.transAxes, xyB=xy_ax6, coordsB=ax6.transAxes, arrowstyle='-|>', fc=color_list[3])
+	fig.add_artist(arrow6)
+
+	#xy_7 = [0.55, 0.1]
+	xy_7 = [0.55, 0.1]
+	xy_ax7 = [0.5, 1.3]
+	arrow7= ConnectionPatch(xyA=xy_7, coordsA=ax0.transAxes, xyB=xy_ax7, coordsB=ax7.transAxes, arrowstyle='-|>', fc=color_list[5])
+	fig.add_artist(arrow7)
+
+	#xy_8 = [0.98, 0.095]
+	xy_8 = [0.98, 0.075]
+	xy_ax8 = [0.65, 1.3]
+	arrow8 = ConnectionPatch(xyA=xy_8, coordsA=ax0.transAxes, xyB=xy_ax8, coordsB=ax8.transAxes, arrowstyle='-|>', fc=color_list[7])
+	fig.add_artist(arrow8)
+
+	plt.savefig(f'plots/NIFS_{savename}_spec_paper.pdf', dpi=300, bbox_inches='tight')
+
+
+
+
+
+
 
 def spectrum_figure_He(spectrum, cont_spec, wave_arr, fit_dict, savename, ap_name='center'):
 	fig = plt.figure(figsize=(12,10))
@@ -1095,40 +1243,81 @@ def save_fluxes(fit_dict, savename):
 	save_tab.write(f'/Users/jotter/highres_PSBs/ngc1266_NIFS/fit_output/{savename}.csv', format='csv', overwrite=True)
 
 
+def print_ap_locations():
+	#printing aperture coordinates:
+	#East pix coord = [22,42]
+	#Center coord = ra='3:16:00.74576', dec='-2:25:38.70151'
+	#West pix coord = [64,20]
+	east_pix = [22,42]
+	west_pix = [64,20]
+
+	cube_path = '/Users/jotter/highres_PSBs/ngc1266_data/NIFS_data/NGC1266_NIFS_final_trim_wcs2.fits'
+	cube_fl = fits.open(cube_path)	
+	cube_data = cube_fl[1].data
+	nifs_wcs = WCS(cube_fl[1].header).celestial
+	cube_fl.close()
+
+	east_deg = nifs_wcs.all_pix2world(east_pix[0], east_pix[1], 0) * u.degree
+	west_deg = nifs_wcs.all_pix2world(west_pix[0], west_pix[1], 0) * u.degree
+	east_coord = SkyCoord(ra=east_deg[0], dec=east_deg[1], unit=u.degree)
+	west_coord = SkyCoord(ra=west_deg[0], dec=west_deg[1], unit=u.degree)
+
+	print(f'east coordinates: {east_coord.to_string("hmsdms")}')
+	print(f'west coordinates: {west_coord.to_string("hmsdms")}')
+
+	z = 0.007214
+	D_L = cosmo.luminosity_distance(z).to(u.Mpc)
+	as_per_kpc = cosmo.arcsec_per_kpc_comoving(z)
+
+	ap_radius = 50*u.pc
+	ap_dimensions_as = (ap_radius * as_per_kpc).to(u.arcsecond)
+
+	print(f'radius in as: {ap_dimensions_as}')
+
+
+print_ap_locations()
 
 #runID = 'North_50pc'
 #pixcent=[42,52]
 #spectrum, err, wave_lam  = extract_spectrum('circle', [50]*u.pc, pixcent)
 #fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
 #fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'north_50pc_ppxf')
-#spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'north_50pc_ppxf', ap_name='east')
-#save_fluxes(fit_dict, 'east_50pc_ppxf')
+#spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'north_50pc_ppxf', ap_center=pixcent)
+#save_fluxes(fit_dict, 'north_50pc_ppxf')
 
-runID = 'Center_125pc'
-spectrum, err, wave_lam = extract_spectrum('circle', [125]*u.pc, None)
-fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
-fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'center_125pc_ppxf')
+#runID = 'South_50pc'
+#pixcent=[40,15]
+#spectrum, err, wave_lam  = extract_spectrum('circle', [50]*u.pc, pixcent)
+#fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
+#fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'south_50pc_ppxf')
+#spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'south_50pc_ppxf', ap_center=pixcent)
+#save_fluxes(fit_dict, 'south_50pc_ppxf')
+
+#runID = 'Center_50pc'
+#spectrum, err, wave_lam = extract_spectrum('circle', [50]*u.pc, None)
+#fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
+#fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'center_50pc_ppxf')
 #spectrum_figure_He(spec_rebin, cont_spec, wave_rebin, fit_dict, 'center_50pc_ppxf')
-spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'center_50pc_ppxf')
-save_fluxes(fit_dict, 'center_125pc_ppxf')
+#spectrum_figure_paper(spec_rebin, cont_spec, wave_rebin, fit_dict, 'center_50pc_ppxf')
+#save_fluxes(fit_dict, 'center_125pc_ppxf')
 
-''''runID = 'Center_50pc'
+'''runID = 'Center_50pc'
 spectrum, err, wave_lam = extract_spectrum('circle', [50]*u.pc, None)
 fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
 fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'center_50pc_ppxf')
 #spectrum_figure_He(spec_rebin, cont_spec, wave_rebin, fit_dict, 'center_50pc_ppxf')
 #spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'center_50pc_ppxf')
-save_fluxes(fit_dict, 'center_50pc_ppxf')
+save_fluxes(fit_dict, 'center_50pc_ppxf')'''
 
-runID = 'East_50pc'
+'''runID = 'East_50pc'
 pixcent=[22,42]
 spectrum, err, wave_lam  = extract_spectrum('circle', [50]*u.pc, pixcent)
 fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
 fit_dict = fit_spectrum(spec_rebin, cont_spec, wave_rebin, line_dict, 'east_50pc_ppxf')
-spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'east_50pc_ppxf', ap_name='east')
-save_fluxes(fit_dict, 'east_50pc_ppxf')
+spectrum_figure(spec_rebin, cont_spec, wave_rebin, fit_dict, 'east_50pc_ppxf', ap_center=pixcent)
+save_fluxes(fit_dict, 'east_50pc_ppxf')'''
 
-runID = 'West_50pc'
+'''runID = 'West_50pc'
 pixcent=[64,20]
 spectrum, err, wave_lam  = extract_spectrum('circle', [50]*u.pc, pixcent)
 fit_results, optimal_template, cont_spec, spec_rebin, wave_rebin = run_stellar_fit(runID, spectrum, err, wave_lam)
